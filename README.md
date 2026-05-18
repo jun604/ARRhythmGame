@@ -6,3 +6,5 @@ librosa를 활용한 기본 비트 감지 및 채보 생성</br>
 # 참고 자료
 - 기본 비트 감지 및 채보 생성
   + "https://github.com/librosa/librosa"
+- 손과 주먹 구분
+  + "https://github.com/mahaveerverma/hand-gesture-recognition-opencv"
