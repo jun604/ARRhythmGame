@@ -2,22 +2,238 @@ import cv2 as cv
 import numpy as np
 import random
 import datetime
+import librosa
+import time
+import pygame
 
-# 전역 변수 설정 (세로 크기를 700으로 통일)
+# 전역 변수 설정
 RESOLUTION = (640, 480)
-GAME_BOARD_SIZE = (400, 700) 
+GAME_BOARD_SIZE = (640, 480) # 가상의 플랫한 게임 보드 크기
 
-# 게임 노트를 관리할 리스트 [x_pos, y_pos, lane]
-notes = []
+def record_video(frame, recorder):
+    if recorder is not None:
+        recorder.write(frame)
+
+def select_picture(cap, btn_x1=480, btn_x2=600, win_name="Select Picture"):
+    """
+    사용자가 스페이스바를 누르거나 가이드 박스 안에서 제스처를 바꿀 때까지 
+    카메라 영상을 보여주며 대기하고, 조건이 충족되면 그 순간의 프레임을 반환합니다.
+    """
+    print("\n=== [0단계: 시작 사진 결정] ===")
+    print("가이드 박스 안에서 제스처를 바꾸거나 [Spacebar]를 누르면 사진이 결정됩니다. (종료: q)")
+    
+    prev_hand_type = None
+    btn_y1, btn_y2 = 180, 300
+
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            print("카메라 프레임을 읽을 수 없습니다.")
+            return None
+
+        # 원본 보존을 위해 출력용 복사본 생성
+        display_frame = frame.copy()
+
+        # --- 손 상태(피부색) 및 제스처 분석 ---
+        hsv = cv.cvtColor(frame, cv.COLOR_BGR2HSV)
+        lower_skin = np.array([0, 15, 40], dtype=np.uint8)
+        upper_skin = np.array([30, 255, 255], dtype=np.uint8)
+        skin_mask = cv.inRange(hsv, lower_skin, upper_skin)
+        
+        kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (5, 5))
+        skin_mask = cv.morphologyEx(skin_mask, cv.MORPH_OPEN, kernel)
+        skin_mask = cv.morphologyEx(skin_mask, cv.MORPH_CLOSE, kernel)
+        
+        cx, cy, current_hand_type = analyze_hand_gesture(skin_mask)
+        
+        gesture_changed = False
+        is_hand_in_zone = False
+
+        if cx is not None:
+            if btn_x1 <= cx <= btn_x2 and btn_y1 <= cy <= btn_y2:
+                is_hand_in_zone = True
+                color = (0, 255, 0) if current_hand_type == "HAND" else (0, 0, 255)
+                cv.circle(display_frame, (cx, cy), 10, color, -1)
+                cv.putText(display_frame, current_hand_type, (cx - 30, cy - 20), cv.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+                
+                if prev_hand_type is not None and prev_hand_type != current_hand_type:
+                    gesture_changed = True
+                    print(f"✊✋ 버튼 영역 내 제스처 변경 감지! ({prev_hand_type} -> {current_hand_type})")
+                
+                prev_hand_type = current_hand_type
+            else:
+                prev_hand_type = None
+        else:
+            prev_hand_type = None
+
+        # --- 화면 안내 메시지 및 START ZONE 시각화 ---
+        cv.putText(display_frame, "Change Gesture in BOX or Press [Spacebar]", (30, 50), 
+                    cv.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+        
+        box_color = (0, 255, 0) if is_hand_in_zone else (255, 0, 0)
+        box_thickness = 4 if is_hand_in_zone else 2
+        cv.rectangle(display_frame, (btn_x1, btn_y1), (btn_x2, btn_y2), box_color, box_thickness)
+        cv.putText(display_frame, "START ZONE", (btn_x1 - 10, btn_y1 - 10), cv.FONT_HERSHEY_SIMPLEX, 0.5, box_color, 1)
+
+        cv.imshow(win_name, display_frame)
+        
+        # --- 입력 트리거 판정 ---
+        key = cv.waitKey(1) & 0xFF
+        if key == ord(' ') or gesture_changed:
+            if win_name != "AR Camera (Floor Scan Mode)":
+                cv.destroyWindow(win_name) # 역할이 끝난 창은 닫기
+            return frame  # 가이드라인이 없는 순수한 원본 프레임 리턴
+
+        elif key == ord('q'):
+            cv.destroyWindow(win_name)
+            return None
+
+def find_flat(cap, ref_img, game_board_size=GAME_BOARD_SIZE):
+    if len(ref_img.shape) == 3:
+        ref_gray = cv.cvtColor(ref_img, cv.COLOR_BGR2GRAY)
+    else:
+        ref_gray = ref_img.copy()
+
+    orb = cv.ORB_create(nfeatures=2000)
+    bf = cv.BFMatcher(cv.NORM_HAMMING, crossCheck=True)
+
+    kp_ref, des_ref = orb.detectAndCompute(ref_img, None)
+    h_ref, w_ref = ref_img.shape[:2]
+    ref_pts = np.float32([[0, 0], [w_ref, 0], [w_ref, h_ref], [0, h_ref]]).reshape(-1, 1, 2)
+    win_name = "AR Camera (Floor Scan Mode)"
+
+    while True:
+        frame = select_picture(cap, win_name=win_name)
+
+        frame_gray = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
+        kp_frame, des_frame = orb.detectAndCompute(frame_gray, None)
+
+        if des_frame is not None and len(des_frame) > 10:
+            matches = bf.match(des_ref, des_frame)
+            matches = sorted(matches, key=lambda x: x.distance)
+            good_matches = matches[:50]
+
+            if len(good_matches) > 10:
+                src_pts = np.float32([kp_ref[m.queryIdx].pt for m in good_matches]).reshape(-1, 1, 2)
+                dst_pts = np.float32([kp_frame[m.trainIdx].pt for m in good_matches]).reshape(-1, 1, 2)
+
+                H, mask = cv.findHomography(src_pts, dst_pts, cv.RANSAC, 5.0)
+
+                if H is not None:
+                    dynamic_src_points = cv.perspectiveTransform(ref_pts, H)
+                    """pts = np.int32(dynamic_src_points)
+                    cv.polylines(frame, [pts], True, (0, 255, 0), 3)
+                    cv.putText(frame, "MATCH FOUND! select frame", (30, 50), 
+                               cv.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)"""
+
+                    src_points = dynamic_src_points.reshape(4, 2)
+                    dst_points = np.float32([
+                        [0, 0], 
+                        [game_board_size[0], 0], 
+                        [game_board_size[0], game_board_size[1]], 
+                        [0, game_board_size[1]]
+                    ])
+                    M = cv.getPerspectiveTransform(src_points, dst_points)
+                    print("-> 바닥 좌표 동적 추출 성공! 게임을 시작합니다.")
+                    return M
+            else:
+                cv.putText(frame, "Scanning floor marker...", (30, 50), 
+                           cv.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
+
+        cv.imshow(win_name, frame)
+        if cv.waitKey(1) & 0xFF == ord('q'):
+            return None
+        time.sleep(1)
+
+def analyze_hand_gesture(mask, min_area=3000):
+    contours, _ = cv.findContours(mask, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+    
+    if not contours:
+        return None, None, None
+        
+    max_contour = max(contours, key=cv.contourArea)
+    if cv.contourArea(max_contour) < min_area:
+        return None, None, None
+
+    M_spatial = cv.moments(max_contour)
+    if M_spatial["m00"] != 0:
+        cx = int(M_spatial["m10"] / M_spatial["m00"])
+        cy = int(M_spatial["m01"] / M_spatial["m00"])
+    else:
+        extBottom = tuple(max_contour[max_contour[:, :, 1].argmax()][0])
+        cx, cy = extBottom[0], extBottom[1]
+
+    hull_indices = cv.convexHull(max_contour, returnPoints=False)
+    hand_type = "FIST"
+
+    if len(max_contour) > 3 and len(hull_indices) > 3:
+        defects = cv.convexityDefects(max_contour, hull_indices)
+        if defects is not None:
+            finger_count = 0
+            for i in range(defects.shape[0]):
+                s, e, f, d = defects[i, 0]
+                start = tuple(max_contour[s][0])
+                end = tuple(max_contour[e][0])
+                far = tuple(max_contour[f][0])
+
+                a = np.linalg.norm(np.array(end) - np.array(start))
+                b = np.linalg.norm(np.array(far) - np.array(start))
+                c = np.linalg.norm(np.array(end) - np.array(far))
+
+                angle = np.arccos((b**2 + c**2 - a**2) / (2 * b * c)) * 57.2958
+
+                if angle < 90 and d > 1000:
+                    finger_count += 1
+
+            if finger_count >= 2:
+                hand_type = "HAND"
+
+    return cx, cy, hand_type
+
+def make_notes(AUDIO_FILE):
+    print(f"🎵 [librosa 오디오 분석 중] '{AUDIO_FILE}' 채보를 자동 생성하고 있습니다...")
+    try:
+        y, sr = librosa.load(AUDIO_FILE, sr=None)
+        _, y_percussive = librosa.effects.hpss(y)
+        onset_env = librosa.onset.onset_strength(y=y_percussive, sr=sr)
+        
+        onset_frames = librosa.util.peak_pick(
+            onset_env, pre_max=4, post_max=4, pre_avg=4, post_avg=6, delta=0.4, wait=12
+        )
+        note_timestamps = librosa.frames_to_time(onset_frames, sr=sr)
+        
+        generated_notes = []
+        for ts in note_timestamps:
+            if ts > 0.5:
+                lane = random.randint(0, 3)
+                generated_notes.append([ts, lane, False])
+                
+        print(f"✅ 채보 생성 완료! 총 {len(generated_notes)}개의 비트 노트를 배치했습니다.")
+        return generated_notes
+    except Exception as e:
+        print(f"❌ 오디오 분석 중 오류 발생: {e}")
+        print("-> 기본 데모 채보(BPM 120 기준)로 대체합니다.")
+        return [[i * 0.5, random.randint(0, 3), False] for i in range(2, 100)]
+
+# -------------------------------------------------------------------------
+# 설정 및 초기화
+# -------------------------------------------------------------------------
+lane_x = [80, 240, 400, 560] 
 score = 0
-lane_x = [50, 150, 250, 350] # 4개 라인의 X 좌표 (게임 보드 기준)
+AUDIO_FILE = "classic.mp3" 
 
-# Optical Flow 파라미터
-feature_params = dict(maxCorners=100, qualityLevel=0.3, minDistance=7, blockSize=7)
-lk_params = dict(winSize=(15, 15), maxLevel=2,
-                 criteria=(cv.TERM_CRITERIA_EPS | cv.TERM_CRITERIA_COUNT, 10, 0.03))
+# pygame 오디오 믹서 초기화 및 음악 로드
+pygame.mixer.init()
+pygame.mixer.music.load(AUDIO_FILE)
 
-cap = cv.VideoCapture(1) # 일반적인 웹캠 기본값 0으로 변경 (필요시 1로 수정)
+game_notes = make_notes(AUDIO_FILE)
+active_notes = [] 
+
+NOTE_SPEED = 400   
+JUDGE_LINE_Y = 420 
+lead_time = JUDGE_LINE_Y / NOTE_SPEED 
+
+cap = cv.VideoCapture(1) # 사용자 환경에 맞게 0 또는 1 설정
 cap.set(cv.CAP_PROP_FRAME_WIDTH, RESOLUTION[0])
 cap.set(cv.CAP_PROP_FRAME_HEIGHT, RESOLUTION[1])
 
@@ -26,129 +242,125 @@ if not ret:
     print("카메라를 열 수 없습니다.")
     exit()
 
-old_gray = cv.cvtColor(old_frame, cv.COLOR_BGR2GRAY)
-p0 = cv.goodFeaturesToTrack(old_gray, mask=None, **feature_params)
+start_frame = select_picture(cap, 40, 180, "AR Camera (Initialization)")
+if start_frame is None:
+    print("사진 선택이 취소되었습니다.")
+    exit()
 
-is_scanned = False
-M = None 
+M = find_flat(cap, start_frame, GAME_BOARD_SIZE)
+if M is None:
+    print("바닥 스캔 실패")
+    exit()
 
-print("=== [1단계: 바닥 스캔] ===")
-print("카메라를 바닥을 향해 좌우로 천천히 움직이세요.")
-print("바닥에 초록색 점들이 안정적으로 생기면 [Spacebar]를 눌러 바닥을 확정하세요.")
-#out_recorder = cv.VideoWriter("Video_" + datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S") + ".avi", cv.VideoWriter_fourcc(*'XVID'), 30.0, (int(cap.get(cv.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv.CAP_PROP_FRAME_HEIGHT))))
-#play_recorder = cv.VideoWriter("Play_Video_" + datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S") + ".avi", cv.VideoWriter_fourcc(*'XVID'), 30.0, (int(cap.get(cv.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv.CAP_PROP_FRAME_HEIGHT))))
+# 원래 화면으로 되돌리기 위한 역행렬(Inverse Matrix) 계산
+M_inv = np.linalg.inv(M)
+
+print("\n=== [2단계: 게임 시작] ===")
+
+# 제스처 실시간 변화 감지를 위한 상태 저장 변수
+prev_hand_type = None
+
+pygame.mixer.music.play(0)
+game_start_time = time.time() 
 
 while True:
     ret, frame = cap.read()
     if not ret:
         break
-    #if is_record:
-        record_video(frame, play_recorder)
-    frame_gray = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
+        
+    elapsed_time = pygame.mixer.music.get_pos() / 1000.0
     
-    # --- 1단계: 바닥 스캔 모드 ---
-    if not is_scanned:
-        if p0 is not None and len(p0) > 0:
-            p1, st, err = cv.calcOpticalFlowPyrLK(old_gray, frame_gray, p0, None, **lk_params)
-            
-            good_new = p1[st == 1]
-            good_old = p0[st == 1]
-            
-            for i, (new, old) in enumerate(zip(good_new, good_old)):
-                a, b = new.ravel()
-                cv.circle(frame, (int(a), int(b)), 5, (0, 255, 0), -1)
-                
-            old_gray = frame_gray.copy()
-            p0 = good_new.reshape(-1, 1, 2)
-            
-            if len(p0) < 20:
-                p0 = cv.goodFeaturesToTrack(frame_gray, mask=None, **feature_params)
-        else:
-            p0 = cv.goodFeaturesToTrack(frame_gray, mask=None, **feature_params)
-            
-        cv.putText(frame, "Scan Floor & Press [Space]", (30, 50), 
-                    cv.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
-        cv.imshow("AR Camera (Original)", frame)
+    # 1. 검은색 도화지(가상 게임판)를 만들어 평면 기준 노트를 그리기
+    # 왜곡 변환(Warp) 시 검은색 영역만 카메라 화면에 자연스럽게 합성하기 위함입니다.
+    virtual_board = np.zeros((GAME_BOARD_SIZE[1], GAME_BOARD_SIZE[0], 3), dtype=np.uint8)
+    
+    # --- 노트 스폰 메커니즘 ---
+    for note in game_notes:
+        target_time, lane, is_spawned = note
+        if not is_spawned and elapsed_time >= (target_time - lead_time):
+            active_notes.append([lane_x[lane], 0, lane, target_time])
+            note[2] = True 
         
-        key = cv.waitKey(30)
-        if key == ord(' '): 
-            if len(p0) >= 4:
-                # 사용자가 지정한 사다리꼴 구역을 400x700 직사각형으로 맵핑
-                src_points = np.float32([[220, 100], [420, 100], [20, 500], [620, 500]])
-                dst_points = np.float32([[0, 300], [400, 300], [0, 600], [400, 600]]) # Y축 시작을 0으로 수정
-                M = cv.getPerspectiveTransform(src_points, dst_points)
-                is_scanned = True
-                print("\n=== [2단계: 게임 시작] ===")
-            else:
-                print("특징점이 부족합니다. 바닥을 더 비춰주세요.")
-        elif key == ord('q'):
-            break
+    # 가상 보드에 판정선 그리기
+    cv.line(virtual_board, (0, JUDGE_LINE_Y), (640, JUDGE_LINE_Y), (255, 0, 0), 5)
+    
+    # 가상 보드에 노트 그리기
+    for note in active_notes[:]:
+        time_to_target = note[3] - elapsed_time
+        note[1] = int(JUDGE_LINE_Y - (time_to_target * NOTE_SPEED))
+        
+        if note[1] > 460:
+            active_notes.remove(note)
+            print("MISS!")
+            continue
+            
+        # 가상 평면 보드에 빨간색 노트 사각형 렌더링
+        cv.rectangle(virtual_board, (note[0]-80, note[1]-20), (note[0]+80, note[1]+20), (0, 0, 255), -1)
 
-    # --- 2단계: 게임 플레이 모드 ---
+    # 2. 역변환 행렬(M_inv)을 사용해 평면 게임판을 원래 카메라 시점으로 찌그러뜨리기(Warp)
+    warped_game_overlay = cv.warpPerspective(virtual_board, M_inv, RESOLUTION)
+
+    # 3. 실시간 카메라 화면(frame)에 왜곡된 게임판 레이어를 투명하게 합성 (비트 연산 활용)
+    # 노트가 그려진 부분만 뚫어서 카메라 영상에 덮어씌웁니다.
+    overlay_gray = cv.cvtColor(warped_game_overlay, cv.COLOR_BGR2GRAY)
+    _, mask_inv = cv.threshold(overlay_gray, 1, 255, cv.THRESH_BINARY_INV)
+    
+    # 가상 노트 레이어가 들어갈 자리를 카메라 프레임에서 도려냄
+    background = cv.bitwise_and(frame, frame, mask=mask_inv)
+    # 도려낸 자리에 왜곡된 가상 레이어를 병합하여 최종 AR 프레임 생성
+    ar_frame = cv.add(background, warped_game_overlay)
+
+    # 4. 손 상태(피부색) 및 제스처 분석
+    hsv = cv.cvtColor(frame, cv.COLOR_BGR2HSV)
+    lower_skin = np.array([0, 20, 70], dtype=np.uint8)
+    upper_skin = np.array([20, 255, 255], dtype=np.uint8)
+    skin_mask = cv.inRange(hsv, lower_skin, upper_skin)
+    
+    kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (5, 5))
+    skin_mask = cv.morphologyEx(skin_mask, cv.MORPH_OPEN, kernel)
+    skin_mask = cv.morphologyEx(skin_mask, cv.MORPH_CLOSE, kernel)
+    
+    cx, cy, current_hand_type = analyze_hand_gesture(skin_mask)
+    
+    # 제스처 상태 변화 감지 플래그 생성
+    gesture_changed = False
+    if cx is not None:
+        color = (0, 255, 0) if current_hand_type == "HAND" else (0, 0, 255)
+        cv.circle(ar_frame, (cx, cy), 10, color, -1) 
+        cv.putText(ar_frame, current_hand_type, (cx - 30, cy - 20), cv.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+        
+        # 이전 프레임과 비교해 손 모양이 바뀌었는지 체크 (Trigger 조건)
+        if prev_hand_type is not None and prev_hand_type != current_hand_type:
+            gesture_changed = True
+            print(f"✊✋ 제스처 변경 감지! ({prev_hand_type} -> {current_hand_type})")
+            
+        # 손의 카메라 좌표 -> 가상 평면 좌표계로 매핑 (어떤 레인을 건드리는지 판정하기 위함)
+        hand_point = np.array([[[cx, cy]]], dtype=np.float32)
+        transformed_hand = cv.perspectiveTransform(hand_point, M)
+        hx, hy = transformed_hand[0][0][0], transformed_hand[0][0][1]
+        
+        # 5. [핵심 수정] 제스처가 변하는 찰나(Trigger)에 판정 영역 계산
+        if gesture_changed and 0 <= hx < GAME_BOARD_SIZE[0]:
+            for note in active_notes[:]:
+                # 조건 A: 가상 평면 좌표 기준으로 내 손의 X축 위치가 레인 안에 부합하고
+                # 조건 B: 실제 음악 연주 시간과 노트의 목표 판정 시간 오차가 ±0.15초 이내일 때 HIT!
+                if (abs(hx - note[0]) < 60) and (abs(elapsed_time - note[3]) < 0.15):
+                    score += 100
+                    time_error = elapsed_time - note[3]
+                    print(f"🎯 PERFECT HIT! SCORE: {score} | 오차: {time_error:.3f}초")
+                    active_notes.remove(note)
+
+        # 다음 프레임을 위해 현재 상태 저장
+        prev_hand_type = current_hand_type
     else:
-        # 1. 원본 화면을 호모그래피 Matrix로 펼치기
-        warped_floor = cv.warpPerspective(frame, M, GAME_BOARD_SIZE)
-        
-        # 2. 주기적으로 랜덤하게 노트 생성
-        if random.random() < 0.15 and len(notes) < 5:
-            lane = random.randint(0, 3)
-            notes.append([lane_x[lane], 0, lane]) 
-            
-        # 3. 게임 보드에 판정선 그리기 (Y=550 지점)
-        JUDGE_LINE_Y = 550
-        cv.line(warped_floor, (0, JUDGE_LINE_Y), (400, JUDGE_LINE_Y), (255, 0, 0), 3)
-        
-        # 4. 노트 업데이트 및 그리기
-        for note in notes[:]:
-            note[1] += 10 # 낙하 속도 약간 상향
-            
-            # 노트 렌더링
-            cv.rectangle(warped_floor, (note[0]-30, note[1]-15), (note[0]+30, note[1]+15), (0, 0, 255), -1)
-            
-            # 판정선을 완전히 지나치면(예: Y=600) MISS 처리
-            if note[1] > 600:
-                notes.remove(note)
-                print("MISS!")
+        prev_hand_type = None # 손이 사라지면 이전 상태 초기화
 
-        # 5. 손 검출 및 좌표 변환
-        hsv = cv.cvtColor(frame, cv.COLOR_BGR2HSV)
-        lower_skin = np.array([0, 20, 70], dtype=np.uint8)
-        upper_skin = np.array([20, 255, 255], dtype=np.uint8)
-        mask = cv.inRange(hsv, lower_skin, upper_skin)
-        
-        contours, _ = cv.findContours(mask, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
-        
-        if contours:
-            max_contour = max(contours, key=cv.contourArea)
-            if cv.contourArea(max_contour) > 2000: 
-                extBottom = tuple(max_contour[max_contour[:, :, 1].argmax()][0])
-                cv.circle(frame, extBottom, 10, (0, 0, 255), -1) 
-                
-                # 원본 좌표 -> 게임 보드 좌표계 변환
-                hand_point = np.array([[[extBottom[0], extBottom[1]]]], dtype=np.float32)
-                transformed_hand = cv.perspectiveTransform(hand_point, M)
-                hx, hy = transformed_hand[0][0][0], transformed_hand[0][0][1]
-                
-                # 게임판 내에 손이 들어왔을 때
-                if 0 <= hx < GAME_BOARD_SIZE[0] and 0 <= hy < GAME_BOARD_SIZE[1]:
-                    cv.circle(warped_floor, (int(hx), int(hy)), 15, (0, 255, 255), -1)
-                    
-                    # 충돌 판정 완화: 손이 판정선 근처에 있고, 노트가 판정선 오차 범위(±30px)에 있을 때
-                    for note in notes[:]:
-                        if (JUDGE_LINE_Y - 40 <= hy <= JUDGE_LINE_Y + 40) and \
-                           (abs(hx - note[0]) < 50) and \
-                           (JUDGE_LINE_Y - 30 <= note[1] <= JUDGE_LINE_Y + 30):
-                            score += 100
-                            print(f"PERFECT! SCORE: {score}")
-                            notes.remove(note)
-
-        # 화면 출력
-        cv.putText(warped_floor, f"SCORE: {score}", (20, 40), cv.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-        cv.imshow("AR Camera (Original)", frame)
-        cv.imshow("AR Rhythm Game Play Board", warped_floor)
-        
-        if cv.waitKey(1) & 0xFF == ord('q'):
-            break
+    # 스코어 표시 및 최종 결과물 출력
+    cv.putText(ar_frame, f"SCORE: {score}", (20, 40), cv.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+    cv.imshow("AR Rhythm Game Play Board (Camera View)", ar_frame)
+    
+    if cv.waitKey(1) & 0xFF == ord('q'):
+        break
 
 cap.release()
 cv.destroyAllWindows()
