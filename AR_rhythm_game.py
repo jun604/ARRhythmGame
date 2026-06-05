@@ -5,64 +5,65 @@ import datetime
 import librosa
 import time
 import pygame
+import mediapipe as mp
+#import mediapipe.python.solutions.hands as mp_hands
 
 # 전역 변수 설정
 RESOLUTION = (640, 480)
 GAME_BOARD_SIZE = (640, 480) # 가상의 플랫한 게임 보드 크기
 
+# MediaPipe Hands 초기화
+mp_hands = mp.solutions.hands
+# max_num_hands=2 로 설정하여 최대 2개의 손을 동시에 인식하게 만듭니다.
+hands_detector = mp_hands.Hands(
+    max_num_hands=2, 
+    min_detection_confidence=0.7, 
+    min_tracking_confidence=0.7
+)
+
+
 def record_video(frame, recorder):
     if recorder is not None:
         recorder.write(frame)
 
-def select_picture(frame, prev_hand_type=None, btn_x1=480, btn_x2=600, win_name="Select Picture"):
+def select_picture(frame, prev_hand_type=None, btn_x1=520, btn_x2=640, win_name="Select Picture"):
     """
-    사용자가 스페이스바를 누르거나 가이드 박스 안에서 제스처를 바꿀 때까지 
-    카메라 영상을 보여주며 대기하고, 조건이 충족되면 그 순간의 프레임을 반환합니다.
+    사용자가 스페이스바를 누르거나, 화면에 감지된 손들 중 하나가 
+    가이드 박스 안에서 제스처를 바꿀 때 조건이 충족되어 사진을 확정합니다.
     """
-    print("\n=== [0단계: 시작 사진 결정] ===")
-    print("가이드 박스 안에서 제스처를 바꾸거나 [Spacebar]를 누르면 사진이 결정됩니다. (종료: q)")
-    
-    #prev_hand_type = None
     btn_y1, btn_y2 = 180, 300
 
-    #while True:
-    #ret, frame = cap.read()
-    """if not ret:
-        print("카메라 프레임을 읽을 수 없습니다.")
-        return None"""
-
-    # 원본 보존을 위해 출력용 복사본 생성
-    #display_frame = frame.copy()
-
     # --- 손 상태(피부색) 및 제스처 분석 ---
-    hsv = cv.cvtColor(frame, cv.COLOR_BGR2HSV)
-    lower_skin = np.array([0, 15, 40], dtype=np.uint8)
-    upper_skin = np.array([30, 255, 255], dtype=np.uint8)
-    skin_mask = cv.inRange(hsv, lower_skin, upper_skin)
-    
-    kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (5, 5))
-    skin_mask = cv.morphologyEx(skin_mask, cv.MORPH_OPEN, kernel)
-    skin_mask = cv.morphologyEx(skin_mask, cv.MORPH_CLOSE, kernel)
-    
-    cx, cy, current_hand_type = analyze_hand_gesture(skin_mask)
+    detected_hands = analyze_hand_gesture_mp(frame)
     
     gesture_changed = False
     is_hand_in_zone = False
+    best_current_hand_type = None
 
-    if cx is not None:
-        if btn_x1 <= cx <= btn_x2 and btn_y1 <= cy <= btn_y2:
-            is_hand_in_zone = True
-            color = (0, 255, 0) if current_hand_type == "HAND" else (0, 0, 255)
-            cv.circle(frame, (cx, cy), 10, color, -1)
-            cv.putText(frame, current_hand_type, (cx - 30, cy - 20), cv.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
-            
-            if prev_hand_type is not None and current_hand_type is not None and prev_hand_type != current_hand_type:
-                gesture_changed = True
-                print(f"✊✋ 버튼 영역 내 제스처 변경 감지! ({prev_hand_type} -> {current_hand_type})")
-            
-            prev_hand_type = current_hand_type
-        else:
-            prev_hand_type = None
+    # 감지된 모든 손을 하나씩 순회하며 가이드 박스 체크 및 시각화
+    for (cx, cy, current_hand_type) in detected_hands:
+        if cx is not None and current_hand_type in ["FIST", "HAND"]:
+            # 현재 검사 중인 손이 START ZONE 박스 안에 들어와 있는가?
+            if btn_x1 <= cx <= btn_x2 and btn_y1 <= cy <= btn_y2:
+                is_hand_in_zone = True
+                best_current_hand_type = current_hand_type # 박스 안의 손 상태를 기준 제스처로 기록
+                
+                # 가이드 박스 안의 손 시각화
+                color = (0, 255, 0) if current_hand_type == "HAND" else (0, 0, 255)
+                cv.circle(frame, (cx, cy), 10, color, -1)
+                cv.putText(frame, current_hand_type, (cx - 30, cy - 20), cv.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+                
+                # 박스 안에서 이전 제스처와 달라졌다면 트리거 발동!
+                if prev_hand_type in ["FIST", "HAND"] and prev_hand_type != current_hand_type:
+                    gesture_changed = True
+                    print(f"✊✋ 버튼 영역 내 제스처 변경 감지! ({prev_hand_type} -> {current_hand_type})")
+            else:
+                # 박스 밖에 있는 손도 화면에 위치 정보는 그려줍니다. (피드백용)
+                cv.circle(frame, (cx, cy), 6, (255, 255, 0), -1)
+
+    # 💡 가이드 박스 안에 있는 손을 기준으로 다음 프레임의 prev_hand_type을 갱신
+    if is_hand_in_zone:
+        prev_hand_type = best_current_hand_type
     else:
         prev_hand_type = None
 
@@ -74,20 +75,21 @@ def select_picture(frame, prev_hand_type=None, btn_x1=480, btn_x2=600, win_name=
     box_thickness = 4 if is_hand_in_zone else 2
     cv.rectangle(frame, (btn_x1, btn_y1), (btn_x2, btn_y2), box_color, box_thickness)
     cv.putText(frame, "START ZONE", (btn_x1 - 10, btn_y1 - 10), cv.FONT_HERSHEY_SIMPLEX, 0.5, box_color, 1)
-
     
     # --- 입력 트리거 판정 ---
     key = cv.waitKey(1) & 0xFF
     if key == ord(' ') or gesture_changed:
-        prev_hand_type=None
-        return frame, prev_hand_type, gesture_changed   # 가이드라인이 없는 순수한 원본 프레임 리턴
+        if win_name != "AR Camera (Floor Scan Mode)":
+            cv.destroyWindow(win_name) 
+        prev_hand_type = None
+        return frame, prev_hand_type, gesture_changed # 확실히 결정되었으므로 True 반환
 
     elif key == ord('q'):
         cv.destroyWindow(win_name)
-        return None, None, gesture_changed
+        exit()
     
     else:
-        return frame, prev_hand_type, gesture_changed
+        return frame, prev_hand_type, gesture_changed # 아직 결정되지 않았으므로 False 반환
 
 def find_flat(cap, ref_img, game_board_size=GAME_BOARD_SIZE):
     if len(ref_img.shape) == 3:
@@ -158,50 +160,41 @@ def find_flat(cap, ref_img, game_board_size=GAME_BOARD_SIZE):
         if cv.waitKey(1) & 0xFF == ord('q'):
             return None
 
-def analyze_hand_gesture(mask, min_area=3000):
-    contours, _ = cv.findContours(mask, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
-    
-    if not contours:
-        return None, None, None
-        
-    max_contour = max(contours, key=cv.contourArea)
-    if cv.contourArea(max_contour) < min_area:
-        return None, None, None
+def analyze_hand_gesture_mp(frame):
+    """
+    구글 MediaPipe 딥러닝 모델을 사용하여 최대 2개의 손을 인식하고 
+    [(cx, cy, hand_type), ...] 리스트를 반환합니다.
+    """
+    h, w, _ = frame.shape
+    # MediaPipe는 RGB 이미지를 사용하므로 변환
+    rgb_frame = cv.cvtColor(frame, cv.COLOR_BGR2RGB)
+    results = hands_detector.process(rgb_frame)
 
-    M_spatial = cv.moments(max_contour)
-    if M_spatial["m00"] != 0:
-        cx = int(M_spatial["m10"] / M_spatial["m00"])
-        cy = int(M_spatial["m01"] / M_spatial["m00"])
-    else:
-        extBottom = tuple(max_contour[max_contour[:, :, 1].argmax()][0])
-        cx, cy = extBottom[0], extBottom[1]
+    hands_info = []
 
-    hull_indices = cv.convexHull(max_contour, returnPoints=False)
-    hand_type = "FIST"
-
-    if len(max_contour) > 3 and len(hull_indices) > 3:
-        defects = cv.convexityDefects(max_contour, hull_indices)
-        if defects is not None:
-            finger_count = 0
-            for i in range(defects.shape[0]):
-                s, e, f, d = defects[i, 0]
-                start = tuple(max_contour[s][0])
-                end = tuple(max_contour[e][0])
-                far = tuple(max_contour[f][0])
-
-                a = np.linalg.norm(np.array(end) - np.array(start))
-                b = np.linalg.norm(np.array(far) - np.array(start))
-                c = np.linalg.norm(np.array(end) - np.array(far))
-
-                angle = np.arccos((b**2 + c**2 - a**2) / (2 * b * c)) * 57.2958
-
-                if angle < 90 and d > 1000:
-                    finger_count += 1
-
-            if finger_count >= 2:
-                hand_type = "HAND"
-
-    return cx, cy, hand_type
+    if results.multi_hand_landmarks:
+        for hand_landmarks in results.multi_hand_landmarks:
+            # 💡 0번(손목)과 9번(가운데 손가락 시작점) 좌표를 이용해 손의 중심점(cx, cy) 계산
+            cx = int(hand_landmarks.landmark[9].x * w)
+            cy = int(hand_landmarks.landmark[9].y * h)
+            
+            # --- 💡 초간단 주먹/보(FIST/HAND) 판정 알고리즘 ---
+            # 엄지를 제외한 네 손가락(끝마디: 8, 12, 16, 20)이 
+            # 각각 안쪽 마디(6, 10, 14, 18)보다 Y값이 아래에 있으면 접힌 것(주먹)으로 판정합니다.
+            folded_fingers = 0
+            tip_ids = [8, 12, 16, 20]
+            pip_ids = [6, 10, 14, 18]
+            
+            for tip, pip in zip(tip_ids, pip_ids):
+                if hand_landmarks.landmark[tip].y > hand_landmarks.landmark[pip].y:
+                    folded_fingers += 1
+            
+            # 접힌 손가락이 3개 이상이면 주먹(FIST), 아니면 보(HAND)
+            hand_type = "FIST" if folded_fingers >= 3 else "HAND"
+            
+            hands_info.append((cx, cy, hand_type))
+            
+    return hands_info
 
 def make_notes(AUDIO_FILE):
     print(f"🎵 [librosa 오디오 분석 중] '{AUDIO_FILE}' 채보를 자동 생성하고 있습니다...")
@@ -264,7 +257,7 @@ if not ret:
     exit()
 
 while not gesture_changed:
-    frame, prev_hand_type, gesture_changed = select_picture(frame, prev_hand_type, 40, 180, win_name=win_name)
+    frame, prev_hand_type, gesture_changed = select_picture(frame, prev_hand_type, 0, 140, win_name=win_name)
     cv.imshow(win_name, frame)
     ret, frame = cap.read()
     if not ret:
@@ -335,57 +328,54 @@ while True:
     # 도려낸 자리에 왜곡된 가상 레이어를 병합하여 최종 AR 프레임 생성
     ar_frame = cv.add(background, warped_game_overlay)
 
-    # 4. 손 상태(피부색) 및 제스처 분석
-    hsv = cv.cvtColor(frame, cv.COLOR_BGR2HSV)
-    lower_skin = np.array([0, 20, 70], dtype=np.uint8)
-    upper_skin = np.array([20, 255, 255], dtype=np.uint8)
-    skin_mask = cv.inRange(hsv, lower_skin, upper_skin)
+    # 4. 손 상태(피부색) 및 제스처 분석    
+    detected_hands = analyze_hand_gesture_mp(frame)
     
-    kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (5, 5))
-    skin_mask = cv.morphologyEx(skin_mask, cv.MORPH_OPEN, kernel)
-    skin_mask = cv.morphologyEx(skin_mask, cv.MORPH_CLOSE, kernel)
+    # 여러 손의 제스처 변화를 통합 추적하기 위해 기존 단일 변수 대신 세트로 관리하거나, 
+    # 혹은 단순 터치용도라면 루프 내에서 개별 판단합니다.
+    # (여기서는 단순 터치/변화 트리거 판정을 위해 개별 처리 예시를 듭니다)
     
-    cx, cy, current_hand_type = analyze_hand_gesture(skin_mask)
+    current_hand_types = [] # 이번 프레임에 발견된 제스처 목록
     
-    # 제스처 상태 변화 감지 플래그 생성
-    gesture_changed = False
-    if cx is not None:
-        # 판정선(JUDGE_LINE_Y) 근처 허용 오차 범위 설정 (예: 60픽셀)
-        threshold_y = 120 
+    for (cx, cy, current_hand_type) in detected_hands:
+        current_hand_types.append(current_hand_type)
         
+        # Y축 판정선 스냅(보정) 알고리즘 적용
+        threshold_y = 120 
         if abs(cy - JUDGE_LINE_Y) <= threshold_y:
-            # 손의 Y 좌표를 판정선에 수직으로 일치하도록 강제 고정!
             cy = JUDGE_LINE_Y
 
+        # 각 손 위치 시각화
         color = (0, 255, 0) if current_hand_type == "HAND" else (0, 0, 255)
         cv.circle(ar_frame, (cx, cy), 10, color, -1) 
         cv.putText(ar_frame, current_hand_type, (cx - 30, cy - 20), cv.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
         
-        # 이전 프레임과 비교해 손 모양이 바뀌었는지 체크 (Trigger 조건)
-        if prev_hand_type is not None and prev_hand_type != current_hand_type:
-            gesture_changed = True
-            print(f"✊✋ 제스처 변경 감지! ({prev_hand_type} -> {current_hand_type})")
-            
-        # 손의 카메라 좌표 -> 가상 평면 좌표계로 매핑 (어떤 레인을 건드리는지 판정하기 위함)
+        # 카메라 좌표 -> 가상 평면 좌표 매핑
         hand_point = np.array([[[cx, cy]]], dtype=np.float32)
         transformed_hand = cv.perspectiveTransform(hand_point, M)
         hx, hy = transformed_hand[0][0][0], transformed_hand[0][0][1]
         
-        # 5. [핵심 수정] 제스처가 변하는 찰나(Trigger)에 판정 영역 계산
+        # 💡 각 손의 제스처 상태 변화 감지 (단일 변수 대신 단순화하거나 이전 frame 핸드 타입과 매칭 필요)
+        # 양손의 경우 완벽한 추적을 위해선 좌/우 구분이 필요하나, 
+        # 리듬게임 특성상 "박자 순간에 제스처가 변했는가?"가 중요하므로 
+        # 이전 프레임에 없던 제스처가 생겼거나 변했을 때 트리거를 켜줍니다.
+        gesture_changed = False
+        if prev_hand_type is not None and prev_hand_type != current_hand_type:
+            gesture_changed = True
+            
+        # 5. 제스처 변경 트리거 시 해당 손의 위치(hx)로 노트 판정
         if gesture_changed and 0 <= hx < GAME_BOARD_SIZE[0]:
             for note in active_notes[:]:
-                # 조건 A: 가상 평면 좌표 기준으로 내 손의 X축 위치가 레인 안에 부합하고
-                # 조건 B: 실제 음악 연주 시간과 노트의 목표 판정 시간 오차가 ±0.15초 이내일 때 HIT!
                 if (abs(hx - note[0]) < 60) and (abs(elapsed_time - note[3]) < 0.15):
                     score += 100
-                    time_error = elapsed_time - note[3]
-                    print(f"🎯 PERFECT HIT! SCORE: {score} | 오차: {time_error:.3f}초")
+                    print(f"🎯 PERFECT HIT! SCORE: {score}")
                     active_notes.remove(note)
 
-        # 다음 프레임을 위해 현재 상태 저장
-        prev_hand_type = current_hand_type
+    # 다음 프레임을 위해 저장 (가장 대표적인 첫 번째 손의 제스처 위주로 저장하거나 리스트 백업)
+    if current_hand_types:
+        prev_hand_type = current_hand_types[0]
     else:
-        prev_hand_type = None # 손이 사라지면 이전 상태 초기화
+        prev_hand_type = None
 
     # 스코어 표시 및 최종 결과물 출력
     cv.putText(ar_frame, f"SCORE: {score}", (20, 40), cv.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
