@@ -12,7 +12,7 @@ import mediapipe as mp
 # ==========================================
 RESOLUTION = (640, 480)
 SCAN_BOARD_SIZE = (480, 480)    # 실제 카메라 바닥에서 얻어낼 크기 (우측 영역)
-VIRTUAL_BOARD_SIZE = (480, 600) # 노트가 흘러내려오는 원본 긴 보드 크기
+VIRTUAL_BOARD_SIZE = (480, 720) # 노트가 흘러내려오는 원본 긴 보드 크기
 
 # MediaPipe Hands 초기화
 mp_hands = mp.solutions.hands
@@ -31,14 +31,6 @@ def select_picture(frame, prev_hand_type=None, btn_x1=520, btn_x2=640, win_name=
     사용자가 스페이스바를 누르거나 손의 제스처를 바꿀 때 조건이 충족되어 사진을 확정합니다.
     """
     btn_y1, btn_y2 = 180, 300
-    
-    # -----------------------------------------------------------------
-    # 수정사항 1: 메인 초기화 및 바닥 스캔 단계 모두에서 우측 480x480 박스 가이드라인 상시 표시
-    # -----------------------------------------------------------------
-    guide_pts = np.array([[160, 0], [640, 0], [640, 480], [160, 480]], dtype=np.int32)
-    cv.polylines(frame, [guide_pts], True, (255, 255, 0), 2)
-    cv.putText(frame, "Align Marker inside this 480x480 BOX", (170, 30), 
-               cv.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 1)
 
     detected_hands = analyze_hand_gesture_mp(frame)
     
@@ -214,9 +206,9 @@ pygame.mixer.music.load(AUDIO_FILE)
 game_notes = make_notes(AUDIO_FILE)
 active_notes = [] 
 
-NOTE_SPEED = 400   
+NOTE_SPEED = 500   
 
-JUDGE_LINE_Y = VIRTUAL_BOARD_SIZE[1] - 80  # 600 - 80 = 520
+JUDGE_LINE_Y = VIRTUAL_BOARD_SIZE[1] - 80  # 720 - 80 = 640
 lead_time = JUDGE_LINE_Y / NOTE_SPEED 
 
 # -------------------------------------------------------------------------
@@ -230,23 +222,27 @@ cap = cv.VideoCapture(1)
 cap.set(cv.CAP_PROP_FRAME_WIDTH, RESOLUTION[0])
 cap.set(cv.CAP_PROP_FRAME_HEIGHT, RESOLUTION[1])
 
-ret, frame = cap.read()
-if not ret:
-    print("카메라를 열 수 없습니다.")
-    exit()
-
 prev_hand_type = None
 gesture_changed = False
 win_name = "AR Camera (Initialization)"
 
 # 첫 메인 진입 루프구간 - 수정사항 1 적용되어 우측 안내선이 출력됨
 while not gesture_changed:
-    frame, prev_hand_type, gesture_changed = select_picture(frame, prev_hand_type, 0, 140, win_name=win_name)
-    cv.imshow(win_name, frame)
     ret, frame = cap.read()
     if not ret:
         exit()
+    frame, prev_hand_type, gesture_changed = select_picture(frame, prev_hand_type, 0, 140, win_name=win_name)
+    # 메인 초기화 및 바닥 스캔 단계 모두에서 우측 480x480 박스 가이드라인 상시 표시
+    guide_pts = np.array([[160, 0], [640, 0], [640, 480], [160, 480]], dtype=np.int32)
+    cv.polylines(frame, [guide_pts], True, (255, 255, 0), 2)
+    cv.putText(frame, "Align Marker inside this 480x480 BOX", (170, 30), 
+               cv.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 1)
+    cv.imshow(win_name, frame)
 cv.destroyWindow(win_name)
+
+ret, frame = cap.read()
+if not ret:
+    exit()
 
 # 480x480 기반으로 바닥 호모그래피 행렬 M 계산
 M = find_flat(cap, frame, SCAN_BOARD_SIZE)
@@ -295,7 +291,7 @@ while True:
             active_notes.append([lane_x[lane], 0, lane, target_time])
             note[2] = True 
         
-    # 가상 보드 판정선 그리기 (Y = 520)
+    # 가상 보드 판정선 그리기 (Y = 640)
     cv.line(virtual_board, (0, JUDGE_LINE_Y), (VIRTUAL_BOARD_SIZE[0], JUDGE_LINE_Y), (255, 0, 0), 5)
     
     # 가상 보드 노트 렌더링 및 탈락 처리
@@ -328,8 +324,11 @@ while True:
         if current_time > fx["expire_time"]:
             active_effects.remove(fx)
         else:
+            # 배경 역할을 할 굵은 테두리 그리기
             cv.putText(virtual_board, fx["text"].upper(), (fx["v_x"], fx["v_y"]), 
-                       cv.FONT_HERSHEY_DUPLEX, 0.8, fx["color"], 2)
+                       cv.FONT_HERSHEY_DUPLEX, 0.8, (0, 0, 0), 5)  # 두께를 5로 두껍게 설정
+            cv.putText(virtual_board, fx["text"].upper(), (fx["v_x"], fx["v_y"]), 
+                       cv.FONT_HERSHEY_DUPLEX, 0.8, fx["color"], 3)  # 실제 글자 색상으로 덮어쓰기 (두께는 3으로 설정)
 
     # 투영 변환 및 카메라 영상 합성
     warped_game_overlay = cv.warpPerspective(virtual_board, M_final_overlay, RESOLUTION)
@@ -352,15 +351,16 @@ while True:
         
         scan_judge_y = SCAN_BOARD_SIZE[1] - 80 
         
-        if abs(hy - scan_judge_y) <= 80:
+        if abs(hy - scan_judge_y) <= 110:
             corrected_hand = cv.perspectiveTransform(np.array([[[hx, scan_judge_y]]], dtype=np.float32), M_inv)
             cx_draw, cy_draw = int(corrected_hand[0][0][0]), int(corrected_hand[0][0][1])
         else:
             cx_draw, cy_draw = cx, cy
 
         color = (0, 255, 0) if current_hand_type == "HAND" else (0, 0, 255)
-        cv.circle(ar_frame, (cx_draw, cy_draw), 10, color, -1) 
-        cv.putText(ar_frame, current_hand_type, (cx_draw - 30, cy_draw - 20), cv.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+        cv.circle(ar_frame, (cx_draw, cy_draw), 10, color, -1)
+        cv.putText(ar_frame, current_hand_type, (cx_draw - 30, cy_draw - 20), cv.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 5)
+        cv.putText(ar_frame, current_hand_type, (cx_draw - 30, cy_draw - 20), cv.FONT_HERSHEY_SIMPLEX, 0.6, color, 3)
         
         gesture_changed = False
         if prev_hand_type is not None and prev_hand_type != current_hand_type:
