@@ -46,7 +46,8 @@ def select_picture(frame, prev_hand_type=None, btn_x1=520, btn_x2=640, win_name=
                 
                 color = (0, 255, 0) if current_hand_type == "HAND" else (0, 0, 255)
                 cv.circle(frame, (cx, cy), 10, color, -1)
-                cv.putText(frame, current_hand_type, (cx - 30, cy - 20), cv.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+                cv.putText(frame, current_hand_type, (cx - 30, cy - 20), cv.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 7)  # 검은색 테두리로 가독성 향상
+                cv.putText(frame, current_hand_type, (cx - 30, cy - 20), cv.FONT_HERSHEY_SIMPLEX, 0.6, color, 3)
                 
                 if prev_hand_type in ["FIST", "HAND"] and prev_hand_type != current_hand_type:
                     gesture_changed = True
@@ -81,6 +82,9 @@ def select_picture(frame, prev_hand_type=None, btn_x1=520, btn_x2=640, win_name=
         return frame, prev_hand_type, False
 
 def find_flat(cap, ref_img, scan_board_size=SCAN_BOARD_SIZE):
+    """
+    ref_img로 이제 우측에서 크롭된 깔끔한 480x480 이미지가 들어옵니다.
+    """
     if len(ref_img.shape) == 3:
         ref_gray = cv.cvtColor(ref_img, cv.COLOR_BGR2GRAY)
     else:
@@ -89,8 +93,8 @@ def find_flat(cap, ref_img, scan_board_size=SCAN_BOARD_SIZE):
     orb = cv.ORB_create(nfeatures=2000)
     bf = cv.BFMatcher(cv.NORM_HAMMING, crossCheck=True)
 
-    kp_ref, des_ref = orb.detectAndCompute(ref_img, None)
-    h_ref, w_ref = ref_img.shape[:2]
+    kp_ref, des_ref = orb.detectAndCompute(ref_gray, None)
+    h_ref, w_ref = ref_gray.shape[:2]
     ref_pts = np.float32([[0, 0], [w_ref, 0], [w_ref, h_ref], [0, h_ref]]).reshape(-1, 1, 2)
     win_name = "AR Camera (Floor Scan Mode)"
     prev_hand_type = None
@@ -122,7 +126,29 @@ def find_flat(cap, ref_img, scan_board_size=SCAN_BOARD_SIZE):
                 if H is not None:
                     dynamic_src_points = cv.perspectiveTransform(ref_pts, H)
                     pts = np.int32(dynamic_src_points)
+                    
+                    # 1. 기존 바닥 테두리 사각형 그리기 (초록색)
                     cv.polylines(frame, [pts], True, (0, 255, 0), 3)
+                    
+                    # -------------------------------------------------------------
+                    # 사각형 위에서 안쪽으로 들어오는 화살표 좌표 수정
+                    # -------------------------------------------------------------
+                    # 시작점을 경계선 위쪽(Y = -80)으로 잡고, 끝점을 사각형 내부(Y = 160)로 설정합니다.
+                    arrow_src_pts = np.float32([
+                        [240, -150],  # 화살표 시작점 (사각형 위쪽 바깥)
+                        [240, 100]   # 화살표 끝점 (사각형 내부, 화살촉 위치)
+                    ]).reshape(-1, 1, 2)
+                    
+                    # 현재 카메라 호모그래피 행렬 H를 사용해 가상 화살표 좌표를 카메라 화면 좌표로 변환
+                    arrow_dst_pts = cv.perspectiveTransform(arrow_src_pts, H)
+                    
+                    p_start = (int(arrow_dst_pts[0][0][0]), int(arrow_dst_pts[0][0][1]))
+                    p_end = (int(arrow_dst_pts[1][0][0]), int(arrow_dst_pts[1][0][1]))
+                    
+                    # 변환된 카메라 좌표 위에 왜곡에 맞춰 꺾이는 3D 화살표 그리기 (노란색, 두께 5, 화살촉 크기 비율 0.3)
+                    cv.arrowedLine(frame, p_start, p_end, (0, 255, 255), 5, tipLength=0.3)
+                    # -------------------------------------------------------------
+
                     cv.putText(frame, "MATCH FOUND! Change gesture to Start", (30, 80), 
                                cv.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
 
@@ -225,12 +251,14 @@ cap.set(cv.CAP_PROP_FRAME_HEIGHT, RESOLUTION[1])
 prev_hand_type = None
 gesture_changed = False
 win_name = "AR Camera (Initialization)"
+last_clean_frame = None
 
 # 첫 메인 진입 루프구간 - 수정사항 1 적용되어 우측 안내선이 출력됨
 while not gesture_changed:
     ret, frame = cap.read()
     if not ret:
         exit()
+    last_clean_frame = frame.copy()
     frame, prev_hand_type, gesture_changed = select_picture(frame, prev_hand_type, 0, 140, win_name=win_name)
     # 메인 초기화 및 바닥 스캔 단계 모두에서 우측 480x480 박스 가이드라인 상시 표시
     guide_pts = np.array([[160, 0], [640, 0], [640, 480], [160, 480]], dtype=np.int32)
@@ -240,12 +268,16 @@ while not gesture_changed:
     cv.imshow(win_name, frame)
 cv.destroyWindow(win_name)
 
-ret, frame = cap.read()
-if not ret:
+# 루프 탈출 후, 안내선 낙서가 없는 원본 프레임에서 정확히 우측 (480x480) 영역만 크롭합니다.
+# Numpy Slicing 사용: Y축 전체 [0:480], X축 오른쪽 [160:640]
+if last_clean_frame is not None:
+    ref_cropped_img = last_clean_frame[0:480, 160:640]
+else:
+    print("프레임을 캡처하지 못했습니다.")
     exit()
 
 # 480x480 기반으로 바닥 호모그래피 행렬 M 계산
-M = find_flat(cap, frame, SCAN_BOARD_SIZE)
+M = find_flat(cap, ref_cropped_img, SCAN_BOARD_SIZE)
 if M is None:
     print("바닥 스캔 실패")
     exit()
@@ -326,7 +358,7 @@ while True:
         else:
             # 배경 역할을 할 굵은 테두리 그리기
             cv.putText(virtual_board, fx["text"].upper(), (fx["v_x"], fx["v_y"]), 
-                       cv.FONT_HERSHEY_DUPLEX, 0.8, (0, 0, 0), 5)  # 두께를 5로 두껍게 설정
+                       cv.FONT_HERSHEY_DUPLEX, 0.8, (255, 255, 255), 9)  # 두께를 9로 두껍게 설정
             cv.putText(virtual_board, fx["text"].upper(), (fx["v_x"], fx["v_y"]), 
                        cv.FONT_HERSHEY_DUPLEX, 0.8, fx["color"], 3)  # 실제 글자 색상으로 덮어쓰기 (두께는 3으로 설정)
 
@@ -359,7 +391,7 @@ while True:
 
         color = (0, 255, 0) if current_hand_type == "HAND" else (0, 0, 255)
         cv.circle(ar_frame, (cx_draw, cy_draw), 10, color, -1)
-        cv.putText(ar_frame, current_hand_type, (cx_draw - 30, cy_draw - 20), cv.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 5)
+        cv.putText(ar_frame, current_hand_type, (cx_draw - 30, cy_draw - 20), cv.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 7)  # 검은색 테두리로 가독성 향상
         cv.putText(ar_frame, current_hand_type, (cx_draw - 30, cy_draw - 20), cv.FONT_HERSHEY_SIMPLEX, 0.6, color, 3)
         
         gesture_changed = False
