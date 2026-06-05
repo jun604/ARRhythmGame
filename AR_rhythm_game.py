@@ -79,8 +79,6 @@ def select_picture(frame, prev_hand_type=None, btn_x1=480, btn_x2=600, win_name=
     # --- 입력 트리거 판정 ---
     key = cv.waitKey(1) & 0xFF
     if key == ord(' ') or gesture_changed:
-        if win_name != "AR Camera (Floor Scan Mode)":
-            cv.destroyWindow(win_name) # 역할이 끝난 창은 닫기
         prev_hand_type=None
         return frame, prev_hand_type, gesture_changed   # 가이드라인이 없는 순수한 원본 프레임 리턴
 
@@ -150,6 +148,7 @@ def find_flat(cap, ref_img, game_board_size=GAME_BOARD_SIZE):
                     M = cv.getPerspectiveTransform(src_points, dst_points)
                     if M is not None and gesture_changed:
                         print("-> 바닥 좌표 동적 추출 성공! 게임을 시작합니다.")
+                        cv.destroyWindow(win_name)
                         return M
             else:
                 cv.putText(frame, "Scanning floor marker...", (30, 50), 
@@ -271,6 +270,7 @@ while not gesture_changed:
     if not ret:
         print("카메라를 열 수 없습니다.")
         exit()
+cv.destroyWindow(win_name)
 
 M = find_flat(cap, frame, GAME_BOARD_SIZE)
 if M is None:
