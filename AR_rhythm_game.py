@@ -14,7 +14,7 @@ def record_video(frame, recorder):
     if recorder is not None:
         recorder.write(frame)
 
-def select_picture(cap, btn_x1=480, btn_x2=600, win_name="Select Picture"):
+def select_picture(frame, prev_hand_type=None, btn_x1=480, btn_x2=600, win_name="Select Picture"):
     """
     사용자가 스페이스바를 누르거나 가이드 박스 안에서 제스처를 바꿀 때까지 
     카메라 영상을 보여주며 대기하고, 조건이 충족되면 그 순간의 프레임을 반환합니다.
@@ -22,71 +22,74 @@ def select_picture(cap, btn_x1=480, btn_x2=600, win_name="Select Picture"):
     print("\n=== [0단계: 시작 사진 결정] ===")
     print("가이드 박스 안에서 제스처를 바꾸거나 [Spacebar]를 누르면 사진이 결정됩니다. (종료: q)")
     
-    prev_hand_type = None
+    #prev_hand_type = None
     btn_y1, btn_y2 = 180, 300
 
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            print("카메라 프레임을 읽을 수 없습니다.")
-            return None
+    #while True:
+    #ret, frame = cap.read()
+    """if not ret:
+        print("카메라 프레임을 읽을 수 없습니다.")
+        return None"""
 
-        # 원본 보존을 위해 출력용 복사본 생성
-        display_frame = frame.copy()
+    # 원본 보존을 위해 출력용 복사본 생성
+    #display_frame = frame.copy()
 
-        # --- 손 상태(피부색) 및 제스처 분석 ---
-        hsv = cv.cvtColor(frame, cv.COLOR_BGR2HSV)
-        lower_skin = np.array([0, 15, 40], dtype=np.uint8)
-        upper_skin = np.array([30, 255, 255], dtype=np.uint8)
-        skin_mask = cv.inRange(hsv, lower_skin, upper_skin)
-        
-        kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (5, 5))
-        skin_mask = cv.morphologyEx(skin_mask, cv.MORPH_OPEN, kernel)
-        skin_mask = cv.morphologyEx(skin_mask, cv.MORPH_CLOSE, kernel)
-        
-        cx, cy, current_hand_type = analyze_hand_gesture(skin_mask)
-        
-        gesture_changed = False
-        is_hand_in_zone = False
+    # --- 손 상태(피부색) 및 제스처 분석 ---
+    hsv = cv.cvtColor(frame, cv.COLOR_BGR2HSV)
+    lower_skin = np.array([0, 15, 40], dtype=np.uint8)
+    upper_skin = np.array([30, 255, 255], dtype=np.uint8)
+    skin_mask = cv.inRange(hsv, lower_skin, upper_skin)
+    
+    kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (5, 5))
+    skin_mask = cv.morphologyEx(skin_mask, cv.MORPH_OPEN, kernel)
+    skin_mask = cv.morphologyEx(skin_mask, cv.MORPH_CLOSE, kernel)
+    
+    cx, cy, current_hand_type = analyze_hand_gesture(skin_mask)
+    
+    gesture_changed = False
+    is_hand_in_zone = False
 
-        if cx is not None:
-            if btn_x1 <= cx <= btn_x2 and btn_y1 <= cy <= btn_y2:
-                is_hand_in_zone = True
-                color = (0, 255, 0) if current_hand_type == "HAND" else (0, 0, 255)
-                cv.circle(display_frame, (cx, cy), 10, color, -1)
-                cv.putText(display_frame, current_hand_type, (cx - 30, cy - 20), cv.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
-                
-                if prev_hand_type is not None and prev_hand_type != current_hand_type:
-                    gesture_changed = True
-                    print(f"✊✋ 버튼 영역 내 제스처 변경 감지! ({prev_hand_type} -> {current_hand_type})")
-                
-                prev_hand_type = current_hand_type
-            else:
-                prev_hand_type = None
+    if cx is not None:
+        if btn_x1 <= cx <= btn_x2 and btn_y1 <= cy <= btn_y2:
+            is_hand_in_zone = True
+            color = (0, 255, 0) if current_hand_type == "HAND" else (0, 0, 255)
+            cv.circle(frame, (cx, cy), 10, color, -1)
+            cv.putText(frame, current_hand_type, (cx - 30, cy - 20), cv.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+            
+            if prev_hand_type is not None and current_hand_type is not None and prev_hand_type != current_hand_type:
+                gesture_changed = True
+                print(f"✊✋ 버튼 영역 내 제스처 변경 감지! ({prev_hand_type} -> {current_hand_type})")
+            
+            prev_hand_type = current_hand_type
         else:
             prev_hand_type = None
+    else:
+        prev_hand_type = None
 
-        # --- 화면 안내 메시지 및 START ZONE 시각화 ---
-        cv.putText(display_frame, "Change Gesture in BOX or Press [Spacebar]", (30, 50), 
-                    cv.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
-        
-        box_color = (0, 255, 0) if is_hand_in_zone else (255, 0, 0)
-        box_thickness = 4 if is_hand_in_zone else 2
-        cv.rectangle(display_frame, (btn_x1, btn_y1), (btn_x2, btn_y2), box_color, box_thickness)
-        cv.putText(display_frame, "START ZONE", (btn_x1 - 10, btn_y1 - 10), cv.FONT_HERSHEY_SIMPLEX, 0.5, box_color, 1)
+    # --- 화면 안내 메시지 및 START ZONE 시각화 ---
+    cv.putText(frame, "Change Gesture in BOX or Press [Spacebar]", (30, 50), 
+                cv.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+    
+    box_color = (0, 255, 0) if is_hand_in_zone else (255, 0, 0)
+    box_thickness = 4 if is_hand_in_zone else 2
+    cv.rectangle(frame, (btn_x1, btn_y1), (btn_x2, btn_y2), box_color, box_thickness)
+    cv.putText(frame, "START ZONE", (btn_x1 - 10, btn_y1 - 10), cv.FONT_HERSHEY_SIMPLEX, 0.5, box_color, 1)
 
-        cv.imshow(win_name, display_frame)
-        
-        # --- 입력 트리거 판정 ---
-        key = cv.waitKey(1) & 0xFF
-        if key == ord(' ') or gesture_changed:
-            if win_name != "AR Camera (Floor Scan Mode)":
-                cv.destroyWindow(win_name) # 역할이 끝난 창은 닫기
-            return frame  # 가이드라인이 없는 순수한 원본 프레임 리턴
+    
+    # --- 입력 트리거 판정 ---
+    key = cv.waitKey(1) & 0xFF
+    if key == ord(' ') or gesture_changed:
+        if win_name != "AR Camera (Floor Scan Mode)":
+            cv.destroyWindow(win_name) # 역할이 끝난 창은 닫기
+        prev_hand_type=None
+        return frame, prev_hand_type, gesture_changed   # 가이드라인이 없는 순수한 원본 프레임 리턴
 
-        elif key == ord('q'):
-            cv.destroyWindow(win_name)
-            return None
+    elif key == ord('q'):
+        cv.destroyWindow(win_name)
+        return None, None, gesture_changed
+    
+    else:
+        return frame, prev_hand_type, gesture_changed
 
 def find_flat(cap, ref_img, game_board_size=GAME_BOARD_SIZE):
     if len(ref_img.shape) == 3:
@@ -101,9 +104,19 @@ def find_flat(cap, ref_img, game_board_size=GAME_BOARD_SIZE):
     h_ref, w_ref = ref_img.shape[:2]
     ref_pts = np.float32([[0, 0], [w_ref, 0], [w_ref, h_ref], [0, h_ref]]).reshape(-1, 1, 2)
     win_name = "AR Camera (Floor Scan Mode)"
+    new_frame = None
+    prev_hand_type = None
+    gesture_changed = False
 
     while True:
-        frame = select_picture(cap, win_name=win_name)
+        ret, frame = cap.read()
+        if not ret:
+            print("카메라 프레임을 읽을 수 없습니다.")
+            return None
+        new_frame, prev_hand_type, gesture_changed = select_picture(frame, prev_hand_type, win_name=win_name)
+
+        if new_frame is not None:
+            frame = new_frame
 
         frame_gray = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
         kp_frame, des_frame = orb.detectAndCompute(frame_gray, None)
@@ -121,10 +134,11 @@ def find_flat(cap, ref_img, game_board_size=GAME_BOARD_SIZE):
 
                 if H is not None:
                     dynamic_src_points = cv.perspectiveTransform(ref_pts, H)
-                    """pts = np.int32(dynamic_src_points)
+                    pts = np.int32(dynamic_src_points)
                     cv.polylines(frame, [pts], True, (0, 255, 0), 3)
                     cv.putText(frame, "MATCH FOUND! select frame", (30, 50), 
-                               cv.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)"""
+                               cv.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+                               #select_picture을 영상이 아닌 frame단위로 바꾸면 가능?
 
                     src_points = dynamic_src_points.reshape(4, 2)
                     dst_points = np.float32([
@@ -134,8 +148,9 @@ def find_flat(cap, ref_img, game_board_size=GAME_BOARD_SIZE):
                         [0, game_board_size[1]]
                     ])
                     M = cv.getPerspectiveTransform(src_points, dst_points)
-                    print("-> 바닥 좌표 동적 추출 성공! 게임을 시작합니다.")
-                    return M
+                    if M is not None and gesture_changed:
+                        print("-> 바닥 좌표 동적 추출 성공! 게임을 시작합니다.")
+                        return M
             else:
                 cv.putText(frame, "Scanning floor marker...", (30, 50), 
                            cv.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
@@ -143,7 +158,6 @@ def find_flat(cap, ref_img, game_board_size=GAME_BOARD_SIZE):
         cv.imshow(win_name, frame)
         if cv.waitKey(1) & 0xFF == ord('q'):
             return None
-        time.sleep(1)
 
 def analyze_hand_gesture(mask, min_area=3000):
     contours, _ = cv.findContours(mask, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
@@ -242,12 +256,23 @@ if not ret:
     print("카메라를 열 수 없습니다.")
     exit()
 
-start_frame = select_picture(cap, 40, 180, "AR Camera (Initialization)")
-if start_frame is None:
-    print("사진 선택이 취소되었습니다.")
+prev_hand_type = None
+gesture_changed = False
+win_name = "AR Camera (Initialization)"
+ret, frame = cap.read()
+if not ret:
+    print("카메라를 열 수 없습니다.")
     exit()
 
-M = find_flat(cap, start_frame, GAME_BOARD_SIZE)
+while not gesture_changed:
+    frame, prev_hand_type, gesture_changed = select_picture(frame, prev_hand_type, 40, 180, win_name=win_name)
+    cv.imshow(win_name, frame)
+    ret, frame = cap.read()
+    if not ret:
+        print("카메라를 열 수 없습니다.")
+        exit()
+
+M = find_flat(cap, frame, GAME_BOARD_SIZE)
 if M is None:
     print("바닥 스캔 실패")
     exit()
@@ -325,6 +350,13 @@ while True:
     # 제스처 상태 변화 감지 플래그 생성
     gesture_changed = False
     if cx is not None:
+        # 판정선(JUDGE_LINE_Y) 근처 허용 오차 범위 설정 (예: 60픽셀)
+        threshold_y = 120 
+        
+        if abs(cy - JUDGE_LINE_Y) <= threshold_y:
+            # 손의 Y 좌표를 판정선에 수직으로 일치하도록 강제 고정!
+            cy = JUDGE_LINE_Y
+
         color = (0, 255, 0) if current_hand_type == "HAND" else (0, 0, 255)
         cv.circle(ar_frame, (cx, cy), 10, color, -1) 
         cv.putText(ar_frame, current_hand_type, (cx - 30, cy - 20), cv.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
