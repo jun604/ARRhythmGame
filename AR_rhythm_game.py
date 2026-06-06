@@ -266,7 +266,13 @@ def game_settings(cap):
 def play_game(cap, music_file=None, M=None, M_inv=None, M_final_overlay=None):
     while True: # 전체 복귀 루프 구현
         lane_x = [60, 180, 300, 420]
-        
+
+        if music_file is None and M is not None and M_inv is not None and M_final_overlay is not None:
+            choice = ask_re_scan(cap)
+            if choice == "RESCAN":
+                print("-> 바닥을 다시 스캔합니다.")
+                M, M_inv, M_final_overlay = None, None, None
+
         if M is None or M_inv is None or M_final_overlay is None:
             M, M_inv, M_final_overlay = game_settings(cap)
         else:
@@ -548,7 +554,7 @@ def play_game(cap, music_file=None, M=None, M_inv=None, M_final_overlay=None):
 
         if menu_action == "MAIN":
             print("-> 처음 세팅 화면으로 복귀합니다.")
-            M, M_inv, M_final_overlay, music_file = None, None, None, None
+            music_file, M, M_inv, M_final_overlay = None, None, None, None
             cv.destroyAllWindows()
             
         elif menu_action == "RESTART":
@@ -655,6 +661,102 @@ def select_music_file(cap, M=None, M_inv=None, M_final_overlay=None):
     print(f"-> 선택된 음악: {selected_music}")
     return selected_music
 
+def ask_re_scan(cap):
+    """
+    이전 바닥 스캔 데이터가 존재할 때, 기존 설정을 유지할지 새로 스캔할지 
+    사용자의 제스처 입력을 받아 결정하는 UI 메뉴입니다.
+    """
+    win_name = "AR Rhythm Game Play Board (Camera View)"
+    prev_hand_type = None
+    choice = None
+
+    # 버튼 크기 및 배치 설정 (기존 UI 규격과 동일하게 세팅)
+    btn_w, btn_h = 160, 60
+    gap = 60
+    
+    # 두 개의 버튼을 화면 중앙 정렬하기 위한 계산
+    start_x = (RESOLUTION[0] - (btn_w * 2 + gap)) // 2  
+    btn1_x1, btn1_x2 = start_x, start_x + btn_w
+    btn2_x1, btn2_x2 = btn1_x2 + gap, btn1_x2 + gap + btn_w
+    btn_y1, btn_y2 = 260, 260 + btn_h
+
+    print("\n=== [바닥 스캔 재사용 선택 메뉴 진입] ===")
+
+    while choice is None:
+        ret, frame = cap.read()
+        if not ret:
+            print("카메라 프레임을 읽을 수 없습니다.")
+            return "KEEP"  # 오류 시 기본값으로 기존 유지 반환
+        
+        # 1. 안내 타이틀 배경 및 텍스트박스 그리기
+        title_box_x1, title_box_y1 = 120, 100
+        title_box_x2, title_box_y2 = 520, 190
+        cv.rectangle(frame, (title_box_x1, title_box_y1), (title_box_x2, title_box_y2), (20, 20, 20), -1) 
+        cv.rectangle(frame, (title_box_x1, title_box_y1), (title_box_x2, title_box_y2), (255, 215, 0), 3) 
+        
+        title_txt = "USE PREVIOUS SCAN?"
+        txt_w, txt_h = cv.getTextSize(title_txt, cv.FONT_HERSHEY_SIMPLEX, 0.7, 2)[0]
+        cv.putText(frame, title_txt, (title_box_x1 + ((520 - 120) - txt_w)//2, title_box_y1 + (90 + txt_h)//2), 
+                    cv.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+
+        # 2. 핸드 제스처 및 마우스(손가락 좌표) 오버랩 감지
+        detected_hands = analyze_hand_gesture_mp(frame)
+        active_btn_idx = 0 
+        current_hand_type_found = None
+        h_cx, h_cy = None, None
+
+        for (cx, cy, current_hand_type) in detected_hands:
+            if cx is not None:
+                h_cx, h_cy = cx, cy
+                current_hand_type_found = current_hand_type
+                # 손가락 좌표가 버튼 Y축 영역 내에 있을 때
+                if btn_y1 <= cy <= btn_y2:
+                    if btn1_x1 <= cx <= btn1_x2: 
+                        active_btn_idx = 1
+                    elif btn2_x1 <= cx <= btn2_x2: 
+                        active_btn_idx = 2
+
+        # 3. 버튼 상태별 색상 매핑 (선택 영역 진입 시 초록색 하이라이트)
+        colors = [(255, 0, 0), (255, 0, 0)]  # BGR (기본 파란색)
+        if active_btn_idx > 0:
+            colors[active_btn_idx - 1] = (0, 255, 0)  # 타겟 버튼 초록색 변경
+
+        # [버튼 1: KEEP (기존 유지)] 크기 및 텍스트 매핑
+        cv.rectangle(frame, (btn1_x1, btn_y1), (btn1_x2, btn_y2), colors[0], 2 if active_btn_idx != 1 else 4)
+        keep_w = cv.getTextSize("keep", cv.FONT_HERSHEY_SIMPLEX, 0.6, 2)[0][0]
+        cv.putText(frame, "keep", (btn1_x1 + (btn_w - keep_w)//2, btn_y1 + 38), cv.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+
+        # [버튼 2: RE-SCAN (재스캔)] 크기 및 텍스트 매핑
+        cv.rectangle(frame, (btn2_x1, btn_y1), (btn2_x2, btn_y2), colors[1], 2 if active_btn_idx != 2 else 4)
+        rescan_w = cv.getTextSize("re-scan", cv.FONT_HERSHEY_SIMPLEX, 0.6, 2)[0][0]
+        cv.putText(frame, "re-scan", (btn2_x1 + (btn_w - rescan_w)//2, btn_y1 + 38), cv.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+
+        # 4. 제스처 변경 트리거를 통한 선택 이벤트 처리
+        if current_hand_type_found and h_cx is not None:
+            dot_color = (0, 255, 0) if current_hand_type_found == "HAND" else (0, 0, 255)
+            cv.circle(frame, (h_cx, h_cy), 8, dot_color, -1)
+            cv.putText(frame, current_hand_type_found, (h_cx - 20, h_cy - 15), cv.FONT_HERSHEY_SIMPLEX, 0.5, dot_color, 2)
+
+            # 제스처가 전환되었을 때 실행 (✊ ✋ 변경)
+            if prev_hand_type in ["FIST", "HAND"] and prev_hand_type != current_hand_type_found:
+                if active_btn_idx == 1:
+                    choice = "KEEP"
+                elif active_btn_idx == 2:
+                    choice = "RESCAN"
+            
+            prev_hand_type = current_hand_type_found
+        else:
+            prev_hand_type = None
+
+        cv.imshow(win_name, frame)
+        
+        key = cv.waitKey(1) & 0xFF
+        if key == ord('q'):
+            return "KEEP"
+
+    print(f"-> 사용자의 선택: {choice}")
+    return choice
+
 
 # -------------------------------------------------------------------------
 # 설정 및 초기화
@@ -666,7 +768,7 @@ cap.set(cv.CAP_PROP_FRAME_WIDTH, RESOLUTION[0])
 cap.set(cv.CAP_PROP_FRAME_HEIGHT, RESOLUTION[1])
 M, M_inv, M_final_overlay = game_settings(cap)
 
-play_game(cap, M, M_inv, M_final_overlay)
+play_game(cap, M=M, M_inv=M_inv, M_final_overlay=M_final_overlay)
 
 cap.release()
 cv.destroyAllWindows()
