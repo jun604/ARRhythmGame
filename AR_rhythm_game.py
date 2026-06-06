@@ -32,6 +32,15 @@ def record_video(frame, recorder):
     if recorder is not None:
         recorder.write(frame)
 
+def is_gesture_changed(prev_gesture, current_gesture):
+    """
+    ✊(FIST)와 ✋(HAND) 간의 제스처 전환이 일어났는지 판단하는 공통 함수
+    """
+    VALID_GESTURES = ["FIST", "HAND"]
+    return (prev_gesture in VALID_GESTURES and 
+            current_gesture in VALID_GESTURES and 
+            prev_gesture != current_gesture)
+
 def select_picture(frame, prev_hand_type=None, btn_x1=520, btn_x2=640, win_name="Select Picture"):
     """
     사용자가 스페이스바를 누르거나 손의 제스처를 바꿀 때 조건이 충족되어 사진을 확정합니다.
@@ -55,7 +64,8 @@ def select_picture(frame, prev_hand_type=None, btn_x1=520, btn_x2=640, win_name=
                 cv.putText(frame, current_hand_type, (cx - 30, cy - 20), cv.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 7)
                 cv.putText(frame, current_hand_type, (cx - 30, cy - 20), cv.FONT_HERSHEY_SIMPLEX, 0.6, color, 3)
                 
-                if prev_hand_type in ["FIST", "HAND"] and prev_hand_type != current_hand_type:
+                # 중복 코드 공통 함수로 대체
+                if is_gesture_changed(prev_hand_type, current_hand_type):
                     gesture_changed = True
                     print(f"✊✋ 버튼 영역 내 제스처 변경 감지! ({prev_hand_type} -> {current_hand_type})")
             else:
@@ -278,7 +288,7 @@ def play_game(cap, music_file=None, M=None, M_inv=None, M_final_overlay=None):
         else:
             print("-> 이전 설정 유지, 바로 게임을 시작합니다.")
         if music_file is None:
-            music_file = select_music_file(cap, M, M_inv, M_final_overlay)
+            music_file = select_music_file(cap)
 
         # -------------------------------------------------------------
         # 요구사항 1: 채보 생성 전 "리듬 노트 생성중" 화면 출력
@@ -405,11 +415,8 @@ def play_game(cap, music_file=None, M=None, M_inv=None, M_final_overlay=None):
                 cv.putText(ar_frame, current_hand_type, (cx_draw - 30, cy_draw - 20), cv.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 7)  
                 cv.putText(ar_frame, current_hand_type, (cx_draw - 30, cy_draw - 20), cv.FONT_HERSHEY_SIMPLEX, 0.6, color, 3)
                 
-                gesture_changed = False
-                if prev_hand_type is not None and prev_hand_type != current_hand_type:
-                    gesture_changed = True
-                    
-                if gesture_changed and 0 <= hx < SCAN_BOARD_SIZE[0]:
+                # 중복 코드 공통 함수로 대체
+                if is_gesture_changed(prev_hand_type, current_hand_type) and 0 <= hx < SCAN_BOARD_SIZE[0]:
                     for note in active_notes[:]:
                         if (abs(hx - note[0]) < 50) and (abs(elapsed_time - note[3]) < 0.15):
                             score += 100
@@ -534,7 +541,8 @@ def play_game(cap, music_file=None, M=None, M_inv=None, M_final_overlay=None):
                 cv.circle(frame, (h_cx, h_cy), 8, dot_color, -1)
                 cv.putText(frame, current_hand_type_found, (h_cx - 20, h_cy - 15), cv.FONT_HERSHEY_SIMPLEX, 0.5, dot_color, 2)
 
-                if result_prev_hand in ["FIST", "HAND"] and result_prev_hand != current_hand_type_found:
+                # 중복 코드 공통 함수로 대체
+                if is_gesture_changed(result_prev_hand, current_hand_type_found):
                     if active_btn_idx == 1:
                         menu_action = "MAIN"
                     elif active_btn_idx == 2:
@@ -554,7 +562,7 @@ def play_game(cap, music_file=None, M=None, M_inv=None, M_final_overlay=None):
 
         if menu_action == "MAIN":
             print("-> 처음 세팅 화면으로 복귀합니다.")
-            music_file, M, M_inv, M_final_overlay = None, None, None, None
+            music_file = None
             cv.destroyAllWindows()
             
         elif menu_action == "RESTART":
@@ -564,13 +572,10 @@ def play_game(cap, music_file=None, M=None, M_inv=None, M_final_overlay=None):
             print("-> 프로그램을 종료합니다.")
             break
 
-def select_music_file(cap, M=None, M_inv=None, M_final_overlay=None):
+def select_music_file(cap):
     win_name = "AR Rhythm Game Play Board (Camera View)"
     prev_hand_type = None
     selected_music = None
-
-    if M is None or M_inv is None or M_final_overlay is None:
-        M, M_inv, M_final_overlay = game_settings(cap)
 
     # 버튼 크기 및 배치 설정 (기존 종료 UI 규격과 동일하게 세팅)
     btn_w, btn_h = 160, 60
@@ -641,8 +646,8 @@ def select_music_file(cap, M=None, M_inv=None, M_final_overlay=None):
             cv.circle(frame, (h_cx, h_cy), 8, dot_color, -1)
             cv.putText(frame, current_hand_type_found, (h_cx - 20, h_cy - 15), cv.FONT_HERSHEY_SIMPLEX, 0.5, dot_color, 2)
 
-            # 주먹 쥐기 혹은 손펴기 등 제스처가 전환되었을 때 실행
-            if prev_hand_type in ["FIST", "HAND"] and prev_hand_type != current_hand_type_found:
+            # 중복 코드 공통 함수로 대체
+            if is_gesture_changed(prev_hand_type, current_hand_type_found):
                 if active_btn_idx == 1:
                     selected_music = "pop.mp3"
                 elif active_btn_idx == 2:
@@ -737,8 +742,8 @@ def ask_re_scan(cap):
             cv.circle(frame, (h_cx, h_cy), 8, dot_color, -1)
             cv.putText(frame, current_hand_type_found, (h_cx - 20, h_cy - 15), cv.FONT_HERSHEY_SIMPLEX, 0.5, dot_color, 2)
 
-            # 제스처가 전환되었을 때 실행 (✊ ✋ 변경)
-            if prev_hand_type in ["FIST", "HAND"] and prev_hand_type != current_hand_type_found:
+            # 중복 코드 공통 함수로 대체 (✊ ✋ 변경)
+            if is_gesture_changed(prev_hand_type, current_hand_type_found):
                 if active_btn_idx == 1:
                     choice = "KEEP"
                 elif active_btn_idx == 2:
