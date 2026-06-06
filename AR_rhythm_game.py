@@ -29,9 +29,6 @@ hands_detector = mp_hands.Hands(
     min_tracking_confidence=0.7
 )
 
-def init_settings():
-    pass
-
 def make_recorder(cap, recorder_name):
     width = int(cap.get(cv.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv.CAP_PROP_FRAME_HEIGHT))
@@ -76,6 +73,24 @@ def put_korean_text(frame, text, org, fontScale, color, thickness=1):
     # 원본 frame 픽셀 데이터 자체를 업데이트하여 리턴 (cv.putText와 동일한 파괴적 동작 방식 매핑)
     frame[:] = result_frame
     return result_frame
+
+def get_korean_text_size(text, fontScale, thickness=1):
+    """
+    Pillow를 이용해 한글 텍스트의 실제 픽셀 크기(width, height)를 정확히 계산하는 함수
+    """
+    font_size = int(fontScale * 25) + (thickness * 2)
+    try:
+        font = ImageFont.truetype("malgun.ttf", font_size)
+    except IOError:
+        font = ImageFont.load_default()
+        
+    # 가상의 이미지 위에서 글자가 차지하는 사각형 영역(Bounding Box)을 구합니다.
+    # 반환값: (left, top, right, bottom)
+    left, top, right, bottom = font.getbbox(text)
+    
+    width = right - left
+    height = bottom - top
+    return (width, height)
 
 def is_gesture_changed(prev_gesture, current_gesture):
     """
@@ -150,7 +165,6 @@ def find_flat(cap, ref_img, out_recorder=None, scan_board_size=SCAN_BOARD_SIZE):
     kp_ref, des_ref = orb.detectAndCompute(ref_gray, None)
     h_ref, w_ref = ref_gray.shape[:2]
     ref_pts = np.float32([[0, 0], [w_ref, 0], [w_ref, h_ref], [0, h_ref]]).reshape(-1, 1, 2)
-    #win_name = "AR Camera (Floor Scan Mode)"
     prev_hand_type = None
 
     while True:
@@ -266,7 +280,6 @@ def make_notes(AUDIO_FILE):
 def game_settings(cap, out_recorder=None):
     prev_hand_type = None
     gesture_changed = False
-    #win_name = "AR Camera (Initialization)"
     last_clean_frame = None
 
     while not gesture_changed:
@@ -316,10 +329,10 @@ def play_game(cap, out_recorder, music_file=None, M=None, M_inv=None, M_final_ov
         lane_x = [60, 180, 300, 420]
 
         # -------------------------------------------------------------
-        # [신규 기능] 게임 시작 전 "방구석 리듬세상" 타이틀 2초 연출
+        # 게임 시작 전 "방구석 리듬세상" 타이틀 2초 연출
         # -------------------------------------------------------------
         title_start_time = time.time()
-        title_text = "방구석 리듬세상" # 영문 매핑 혹은 윈도우 환경 한글 호환 텍스트
+        title_text = "방구석 리듬세상"
         
         while time.time() - title_start_time < 2.0:
             ret, frame = cap.read()
@@ -327,7 +340,7 @@ def play_game(cap, out_recorder, music_file=None, M=None, M_inv=None, M_final_ov
                 break
             
             # 중앙 정렬을 위한 타이틀 텍스트 크기 계산
-            t_size = cv.getTextSize(title_text, cv.FONT_HERSHEY_SIMPLEX, 1.3, 3)[0]
+            t_size = get_korean_text_size(title_text, 1.3, 3)[0]
             tx = (RESOLUTION[0] - t_size[0]) // 2
             ty = (RESOLUTION[1] + t_size[1]) // 2
             
@@ -361,7 +374,7 @@ def play_game(cap, out_recorder, music_file=None, M=None, M_inv=None, M_final_ov
             ret, frame = cap.read()
             if ret:
                 text = "리듬 노트 생성중..."
-                text_size = cv.getTextSize(text, cv.FONT_HERSHEY_SIMPLEX, 0.8, 2)[0]
+                text_size = get_korean_text_size(text, 0.8, 2)[0]
                 box_x1 = (RESOLUTION[0] - text_size[0]) // 2 - 20
                 box_y1 = (RESOLUTION[1] - text_size[1]) // 2 - 20
                 box_x2 = (RESOLUTION[0] + text_size[0]) // 2 + 20
@@ -694,8 +707,8 @@ def select_music_file(cap, out_recorder=None, M=None, M_inv=None, M_final_overla
         cv.rectangle(frame, (title_box_x1, title_box_y1), (title_box_x2, title_box_y2), (20, 20, 20), -1) 
         cv.rectangle(frame, (title_box_x1, title_box_y1), (title_box_x2, title_box_y2), (255, 215, 0), 3) 
         
-        title_txt = "SELECT MUSIC"
-        txt_w, txt_h = cv.getTextSize(title_txt, cv.FONT_HERSHEY_SIMPLEX, 0.8, 2)[0]
+        title_txt = "음악 선택"
+        txt_w, txt_h = get_korean_text_size(title_txt, 0.8, 2)[0]
         put_korean_text(frame, title_txt, (title_box_x1 + (340 - txt_w)//2, title_box_y1 + (90 + txt_h)//2), 0.8, (255, 255, 255), 2)
 
         detected_hands = analyze_hand_gesture_mp(frame)
@@ -780,10 +793,10 @@ def ask_re_scan(cap, out_recorder=None):
         cv.rectangle(frame, (title_box_x1, title_box_y1), (title_box_x2, title_box_y2), (20, 20, 20), -1) 
         cv.rectangle(frame, (title_box_x1, title_box_y1), (title_box_x2, title_box_y2), (255, 215, 0), 3) 
         
-        title_txt = "USE PREVIOUS SCAN?"
-        txt_w, txt_h = cv.getTextSize(title_txt, cv.FONT_HERSHEY_SIMPLEX, 0.7, 2)[0]
+        title_txt = "이전 바닥 스캔을 사용하시겠습니까?"
+        txt_w, txt_h = get_korean_text_size(title_txt, 0.7, 2)[0]
         put_korean_text(frame, title_txt, (title_box_x1 + ((520 - 120) - txt_w)//2, title_box_y1 + (90 + txt_h)//2), 
-                    cv.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+                    0.7, (255, 255, 255), 2)
 
         detected_hands = analyze_hand_gesture_mp(frame)
         active_btn_idx = 0 
@@ -805,11 +818,11 @@ def ask_re_scan(cap, out_recorder=None):
             colors[active_btn_idx - 1] = (0, 255, 0)  
 
         cv.rectangle(frame, (btn1_x1, btn_y1), (btn1_x2, btn_y2), colors[0], 2 if active_btn_idx != 1 else 4)
-        keep_w = cv.getTextSize("유지", cv.FONT_HERSHEY_SIMPLEX, 0.6, 2)[0][0]
+        keep_w = get_korean_text_size("유지", 0.6, 2)[0][0]
         put_korean_text(frame, "유지", (btn1_x1 + (btn_w - keep_w)//2, btn_y1 + 38), 0.6, (255, 255, 255), 2)
 
         cv.rectangle(frame, (btn2_x1, btn_y1), (btn2_x2, btn_y2), colors[1], 2 if active_btn_idx != 2 else 4)
-        rescan_w = cv.getTextSize("재스캔", cv.FONT_HERSHEY_SIMPLEX, 0.6, 2)[0][0]
+        rescan_w = get_korean_text_size("재스캔", 0.6, 2)[0][0]
         put_korean_text(frame, "재스캔", (btn2_x1 + (btn_w - rescan_w)//2, btn_y1 + 38), 0.6, (255, 255, 255), 2)
 
         if current_hand_type_found and h_cx is not None:
