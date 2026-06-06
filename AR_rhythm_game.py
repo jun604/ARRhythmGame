@@ -263,7 +263,7 @@ def game_settings(cap):
     M_final_overlay = np.dot(M_inv, M_virtual_to_scan)
     return M, M_inv, M_final_overlay
 
-def play_game(cap, music_file="classic.mp3", M=None, M_inv=None, M_final_overlay=None):
+def play_game(cap, music_file=None, M=None, M_inv=None, M_final_overlay=None):
     while True: # 전체 복귀 루프 구현
         lane_x = [60, 180, 300, 420]
         
@@ -271,14 +271,15 @@ def play_game(cap, music_file="classic.mp3", M=None, M_inv=None, M_final_overlay
             M, M_inv, M_final_overlay = game_settings(cap)
         else:
             print("-> 이전 설정 유지, 바로 게임을 시작합니다.")
+        if music_file is None:
+            music_file = select_music_file(cap, M, M_inv, M_final_overlay)
 
         # -------------------------------------------------------------
         # 요구사항 1: 채보 생성 전 "리듬 노트 생성중" 화면 출력
         # -------------------------------------------------------------
-        for _ in range(50): # 약 0.5초간 해당 화면 유지 (30프레임 * 100ms)
+        for _ in range(30): # 약 0.3초간 해당 화면 유지
             ret, frame = cap.read()
             if ret:
-                # 중앙 정렬을 위한 텍스트 배경 박스 및 문자 출력
                 text = "Generating Rhythm Notes..."
                 text_size = cv.getTextSize(text, cv.FONT_HERSHEY_SIMPLEX, 0.8, 2)[0]
                 box_x1 = (RESOLUTION[0] - text_size[0]) // 2 - 20
@@ -286,18 +287,16 @@ def play_game(cap, music_file="classic.mp3", M=None, M_inv=None, M_final_overlay
                 box_x2 = (RESOLUTION[0] + text_size[0]) // 2 + 20
                 box_y2 = (RESOLUTION[1] + text_size[1]) // 2 + 20
                 
-                cv.rectangle(frame, (box_x1, box_y1), (box_x2, box_y2), (0, 0, 0), -1) # 검은색 꽉 찬 박스
-                cv.rectangle(frame, (box_x1, box_y1), (box_x2, box_y2), (0, 255, 255), 2) # 노란색 테두리
+                cv.rectangle(frame, (box_x1, box_y1), (box_x2, box_y2), (0, 0, 0), -1) 
+                cv.rectangle(frame, (box_x1, box_y1), (box_x2, box_y2), (0, 255, 255), 2) 
                 cv.putText(frame, text, ((RESOLUTION[0] - text_size[0]) // 2, (RESOLUTION[1] + text_size[1]) // 2),
                         cv.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
                 cv.imshow("AR Rhythm Game Play Board (Camera View)", frame)
-                cv.waitKey(10) # 10ms 대기하여 약 0.5초간 화면 갱신 유지
+                cv.waitKey(10)
 
         score = 0
-        miss_count = 0  # 미스 카운트 변수 추가
+        miss_count = 0  
         AUDIO_FILE = music_file
-
-        pygame.mixer.init()
         pygame.mixer.music.load(AUDIO_FILE)
 
         game_notes = make_notes(AUDIO_FILE)
@@ -348,7 +347,7 @@ def play_game(cap, music_file="classic.mp3", M=None, M_inv=None, M_final_overlay
                 note[1] = int(JUDGE_LINE_Y - (time_to_target * NOTE_SPEED))
                 
                 if note[1] > VIRTUAL_BOARD_SIZE[1] - 10:
-                    miss_count += 1 # 미스 카운트 누적
+                    miss_count += 1 
                     active_effects.append({
                         "text": "miss",
                         "color": (128, 128, 128),
@@ -430,18 +429,51 @@ def play_game(cap, music_file="classic.mp3", M=None, M_inv=None, M_final_overlay
                 return
 
         # -------------------------------------------------------------
-        # 요구사항 2~4: Game Over 결과창 및 동일 규격 메뉴 인터랙션 설계
+        # [추가된 요구사항] 점수 표시 전 "GAME OVER" / "GAME CLEAR" 3초 연출
         # -------------------------------------------------------------
         pygame.mixer.music.stop()
+        
+        # 조건 판별: 미스가 50개 이상 쌓여서 끝났으면 오버, 아니면 클리어
+        if miss_count >= 50:
+            result_text = "GAME OVER"
+            text_color = (0, 0, 255)  # 빨간색
+        else:
+            result_text = "GAME CLEAR"
+            text_color = (0, 255, 0)  # 초록색
+
+        # 3초 동안 루프 돌며 화면에 고정 출력
+        end_display_start = time.time()
+        while time.time() - end_display_start < 3.0:
+            ret, frame = cap.read()
+            if not ret:
+                break
+            
+            # 중앙 정렬을 위한 텍스트 크기 계산
+            t_size = cv.getTextSize(result_text, cv.FONT_HERSHEY_SIMPLEX, 1.5, 4)[0]
+            tx = (RESOLUTION[0] - t_size[0]) // 2
+            ty = (RESOLUTION[1] + t_size[1]) // 2
+            
+            # 어두운 배경 박스 깔아주기 (가독성 확보)
+            cv.rectangle(frame, (tx - 20, ty - t_size[1] - 20), (tx + t_size[0] + 20, ty + 20), (0, 0, 0), -1)
+            cv.rectangle(frame, (tx - 20, ty - t_size[1] - 20), (tx + t_size[0] + 20, ty + 20), text_color, 2)
+            
+            # 텍스트 출력
+            cv.putText(frame, result_text, (tx, ty), cv.FONT_HERSHEY_SIMPLEX, 1.5, text_color, 4, cv.LINE_AA)
+            cv.imshow("AR Rhythm Game Play Board (Camera View)", frame)
+            
+            if cv.waitKey(1) & 0xFF == ord('q'):
+                break
+
+        # -------------------------------------------------------------
+        # 요구사항 2~4: Game Over 결과창 및 동일 규격 메뉴 인터랙션 설계
+        # -------------------------------------------------------------
         menu_action = None
         result_prev_hand = None
 
-        # 버튼 규격 설정 (동일 크기 가로 140, 세로 50, 간격 50)
         btn_w, btn_h = 140, 50
         gap = 50
         
-        # 전체 가로 정렬을 위한 시작 X 좌표 계산 (화면 중앙 근처 배치)
-        start_x = (RESOLUTION[0] - (btn_w * 3 + gap * 2)) // 2  # (640 - (420 + 100)) // 2 = 60
+        start_x = (RESOLUTION[0] - (btn_w * 3 + gap * 2)) // 2  
         
         btn1_x1, btn1_x2 = start_x, start_x + btn_w
         btn2_x1, btn2_x2 = btn1_x2 + gap, btn1_x2 + gap + btn_w
@@ -454,20 +486,18 @@ def play_game(cap, music_file="classic.mp3", M=None, M_inv=None, M_final_overlay
             if not ret:
                 break
 
-            # 1. 최종 점수 UI 박스 그리기 (화면 중앙 상단 부근)
             score_box_x1, score_box_y1 = 170, 120
             score_box_x2, score_box_y2 = 470, 220
-            cv.rectangle(frame, (score_box_x1, score_box_y1), (score_box_x2, score_box_y2), (20, 20, 20), -1) # 어두운 회색배경
-            cv.rectangle(frame, (score_box_x1, score_box_y1), (score_box_x2, score_box_y2), (0, 215, 255), 3) # 금색빛 테두리
+            cv.rectangle(frame, (score_box_x1, score_box_y1), (score_box_x2, score_box_y2), (20, 20, 20), -1) 
+            cv.rectangle(frame, (score_box_x1, score_box_y1), (score_box_x2, score_box_y2), (0, 215, 255), 3) 
             
             score_txt = f"FINAL SCORE: {score}"
             txt_w, txt_h = cv.getTextSize(score_txt, cv.FONT_HERSHEY_SIMPLEX, 0.7, 2)[0]
             cv.putText(frame, score_txt, (170 + (300 - txt_w)//2, 120 + (100 + txt_h)//2), 
                         cv.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
 
-            # 2. 손 제스처 실시간 트래킹 및 영역 충족 조건 감지
             detected_hands = analyze_hand_gesture_mp(frame)
-            active_btn_idx = 0 # 1: 돌아가기, 2: 다시하기, 3: 종료
+            active_btn_idx = 0 
             current_hand_type_found = None
             h_cx, h_cy = None, None
 
@@ -475,36 +505,29 @@ def play_game(cap, music_file="classic.mp3", M=None, M_inv=None, M_final_overlay
                 if cx is not None:
                     h_cx, h_cy = cx, cy
                     current_hand_type_found = current_hand_type
-                    # 어떤 버튼 영역에 들어왔는지 트리거 검사
                     if btn_y1 <= cy <= btn_y2:
                         if btn1_x1 <= cx <= btn1_x2: active_btn_idx = 1
                         elif btn2_x1 <= cx <= btn2_x2: active_btn_idx = 2
                         elif btn3_x1 <= cx <= btn3_x2: active_btn_idx = 3
 
-            # 3. 버튼 3개 렌더링 (동일 크기, 간격 50)
-            colors = [(255, 0, 0), (255, 0, 0), (255, 0, 0)] # 디폴트 파란색/하늘색 계열
+            colors = [(255, 0, 0), (255, 0, 0), (255, 0, 0)] 
             if active_btn_idx > 0:
-                colors[active_btn_idx - 1] = (0, 255, 0) # 진입 시 초록색 하이라이트
+                colors[active_btn_idx - 1] = (0, 255, 0) 
 
-            # 버튼 1: 돌아가기
             cv.rectangle(frame, (btn1_x1, btn_y1), (btn1_x2, btn_y2), colors[0], 2 if active_btn_idx != 1 else 4)
             cv.putText(frame, "Back to Main", (btn1_x1 + 10, btn_y1 + 30), cv.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
 
-            # 버튼 2: 다시하기
             cv.rectangle(frame, (btn2_x1, btn_y1), (btn2_x2, btn_y2), colors[1], 2 if active_btn_idx != 2 else 4)
             cv.putText(frame, "Restart", (btn2_x1 + 35, btn_y1 + 30), cv.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
 
-            # 버튼 3: 종료
             cv.rectangle(frame, (btn3_x1, btn_y1), (btn3_x2, btn_y2), colors[2], 2 if active_btn_idx != 3 else 4)
             cv.putText(frame, "Exit Game", (btn3_x1 + 25, btn_y1 + 30), cv.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
 
-            # 손 위치 피드백 표시
             if current_hand_type_found and h_cx is not None:
                 dot_color = (0, 255, 0) if current_hand_type_found == "HAND" else (0, 0, 255)
                 cv.circle(frame, (h_cx, h_cy), 8, dot_color, -1)
                 cv.putText(frame, current_hand_type_found, (h_cx - 20, h_cy - 15), cv.FONT_HERSHEY_SIMPLEX, 0.5, dot_color, 2)
 
-                # 제스처 변경 이벤트 트리거 확인
                 if result_prev_hand in ["FIST", "HAND"] and result_prev_hand != current_hand_type_found:
                     if active_btn_idx == 1:
                         menu_action = "MAIN"
@@ -523,31 +546,127 @@ def play_game(cap, music_file="classic.mp3", M=None, M_inv=None, M_final_overlay
             if key == ord('q'):
                 menu_action = "EXIT"
 
-        # 4. 선택된 메뉴 액션 처리 분기문
         if menu_action == "MAIN":
             print("-> 처음 세팅 화면으로 복귀합니다.")
-            M, M_inv, M_final_overlay = None, None, None # 기존 세팅 초기화
+            M, M_inv, M_final_overlay, music_file = None, None, None, None
             cv.destroyAllWindows()
             
         elif menu_action == "RESTART":
-            # 3초 카운트다운 가시적 시각화 연출 후 재시작
             print("-> 게임을 다시 시작합니다.")
-            # 바닥 행렬 정보 M 등은 유지한 채 플레이 루프만 즉시 재진입하기 위해 세팅 복귀 처리 생략 가능하나, 
-            # game_settings부터 안전하게 순차 진행되도록 설계됨. (필요 시 가상 변수만 재초기화 가능)
             
         elif menu_action == "EXIT":
             print("-> 프로그램을 종료합니다.")
             break
 
+def select_music_file(cap, M=None, M_inv=None, M_final_overlay=None):
+    win_name = "AR Rhythm Game Play Board (Camera View)"
+    prev_hand_type = None
+    selected_music = None
+
+    if M is None or M_inv is None or M_final_overlay is None:
+        M, M_inv, M_final_overlay = game_settings(cap)
+
+    # 버튼 크기 및 배치 설정 (기존 종료 UI 규격과 동일하게 세팅)
+    btn_w, btn_h = 160, 60
+    gap = 60
+    
+    # 두 개의 버튼을 화면 중앙 정렬하기 위한 계산
+    start_x = (RESOLUTION[0] - (btn_w * 2 + gap)) // 2  
+    
+    btn1_x1, btn1_x2 = start_x, start_x + btn_w
+    btn2_x1, btn2_x2 = btn1_x2 + gap, btn1_x2 + gap + btn_w
+    
+    btn_y1, btn_y2 = 260, 260 + btn_h
+
+    print("\n=== [음악 선택 메뉴 진입] ===")
+
+    while selected_music is None:
+        ret, frame = cap.read()
+        if not ret:
+            print("카메라 프레임을 읽을 수 없습니다.")
+            return "classic.mp3"  # 오류 시 기본값 반환
+        
+        # 1. 안내 타이틀 배경 및 텍스트박스 그리기
+        title_box_x1, title_box_y1 = 150, 100
+        title_box_x2, title_box_y2 = 490, 190
+        cv.rectangle(frame, (title_box_x1, title_box_y1), (title_box_x2, title_box_y2), (20, 20, 20), -1) 
+        cv.rectangle(frame, (title_box_x1, title_box_y1), (title_box_x2, title_box_y2), (255, 215, 0), 3) 
+        
+        title_txt = "SELECT MUSIC"
+        txt_w, txt_h = cv.getTextSize(title_txt, cv.FONT_HERSHEY_SIMPLEX, 0.8, 2)[0]
+        cv.putText(frame, title_txt, (title_box_x1 + (340 - txt_w)//2, title_box_y1 + (90 + txt_h)//2), 
+                    cv.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+
+        # 2. 핸드 제스처 및 마우스(손가락 좌표) 오버랩 감지
+        detected_hands = analyze_hand_gesture_mp(frame)
+        active_btn_idx = 0 
+        current_hand_type_found = None
+        h_cx, h_cy = None, None
+
+        for (cx, cy, current_hand_type) in detected_hands:
+            if cx is not None:
+                h_cx, h_cy = cx, cy
+                current_hand_type_found = current_hand_type
+                # 손가락 좌표가 버튼 Y축 영역 내에 있을 때
+                if btn_y1 <= cy <= btn_y2:
+                    if btn1_x1 <= cx <= btn1_x2: 
+                        active_btn_idx = 1
+                    elif btn2_x1 <= cx <= btn2_x2: 
+                        active_btn_idx = 2
+
+        # 3. 버튼 상태별 색상 매핑 (선택 영역 진입 시 초록색 하이라이트)
+        colors = [(255, 0, 0), (255, 0, 0)]  # 기본 파란색 (OpenCV는 BGR 이므로 파란색)
+        if active_btn_idx > 0:
+            colors[active_btn_idx - 1] = (0, 255, 0)  # 타겟 버튼 초록색 변경
+
+        # [버튼 1: POP] 크기 및 텍스트 매핑
+        cv.rectangle(frame, (btn1_x1, btn_y1), (btn1_x2, btn_y2), colors[0], 2 if active_btn_idx != 1 else 4)
+        pop_w = cv.getTextSize("pop", cv.FONT_HERSHEY_SIMPLEX, 0.6, 2)[0][0]
+        cv.putText(frame, "pop", (btn1_x1 + (btn_w - pop_w)//2, btn_y1 + 38), cv.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+
+        # [버튼 2: CLASSIC] 크기 및 텍스트 매핑
+        cv.rectangle(frame, (btn2_x1, btn_y1), (btn2_x2, btn_y2), colors[1], 2 if active_btn_idx != 2 else 4)
+        classic_w = cv.getTextSize("classic", cv.FONT_HERSHEY_SIMPLEX, 0.6, 2)[0][0]
+        cv.putText(frame, "classic", (btn2_x1 + (btn_w - classic_w)//2, btn_y1 + 38), cv.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+
+        # 4. 제스처 변경 트리거를 통한 음악 확정 선택 이벤트 처리
+        if current_hand_type_found and h_cx is not None:
+            dot_color = (0, 255, 0) if current_hand_type_found == "HAND" else (0, 0, 255)
+            cv.circle(frame, (h_cx, h_cy), 8, dot_color, -1)
+            cv.putText(frame, current_hand_type_found, (h_cx - 20, h_cy - 15), cv.FONT_HERSHEY_SIMPLEX, 0.5, dot_color, 2)
+
+            # 주먹 쥐기 혹은 손펴기 등 제스처가 전환되었을 때 실행
+            if prev_hand_type in ["FIST", "HAND"] and prev_hand_type != current_hand_type_found:
+                if active_btn_idx == 1:
+                    selected_music = "pop.mp3"
+                elif active_btn_idx == 2:
+                    selected_music = "classic.mp3"
+            
+            prev_hand_type = current_hand_type_found
+        else:
+            prev_hand_type = None
+
+        cv.imshow(win_name, frame)
+        
+        key = cv.waitKey(1) & 0xFF
+        if key == ord('q'):
+            return "classic.mp3"  # 강제 종료 시 기본 클래식 반환
+
+    print(f"-> 선택된 음악: {selected_music}")
+    return selected_music
+
 
 # -------------------------------------------------------------------------
 # 설정 및 초기화
 # -------------------------------------------------------------------------
+
+pygame.mixer.init()
 cap = cv.VideoCapture(1)
 cap.set(cv.CAP_PROP_FRAME_WIDTH, RESOLUTION[0])
 cap.set(cv.CAP_PROP_FRAME_HEIGHT, RESOLUTION[1])
+M, M_inv, M_final_overlay = game_settings(cap)
 
-play_game(cap)
+play_game(cap, M, M_inv, M_final_overlay)
 
 cap.release()
 cv.destroyAllWindows()
