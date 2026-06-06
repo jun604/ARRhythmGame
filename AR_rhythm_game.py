@@ -520,7 +520,7 @@ def play_game(cap, out_recorder, music_file=None, M=None, M_inv=None, M_final_ov
                 prev_hand_type = None
 
             # -------------------------------------------------------------
-            # [UI 컴포넌트 추가] SCORE 표시 및 실시간 체력 게이지 바 그리기
+            # SCORE 표시 및 실시간 체력 게이지 바 그리기
             # -------------------------------------------------------------
             cv.putText(ar_frame, f"SCORE: {score}", (20, 40), cv.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
             
@@ -582,7 +582,7 @@ def play_game(cap, out_recorder, music_file=None, M=None, M_inv=None, M_final_ov
                 break
 
         # -------------------------------------------------------------
-        # 요구사항 2~4: Game Over 결과창 및 동일 규격 메뉴 인터랙션 설계
+        # Game Over 결과창 및 동일 규격 메뉴 인터랙션 설계
         # -------------------------------------------------------------
         menu_action = None
         result_prev_hand = None
@@ -768,7 +768,6 @@ def ask_re_scan(cap, out_recorder=None):
     이전 바닥 스캔 데이터가 존재할 때, 기존 설정을 유지할지 새로 스캔할지 
     사용자의 제스처 입력을 받아 결정하는 UI 메뉴입니다.
     """
-    #win_name = "AR Rhythm Game Play Board (Camera View)"
     prev_hand_type = None
     choice = None
 
