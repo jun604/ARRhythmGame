@@ -121,7 +121,6 @@ def select_picture(frame, prev_hand_type=None, btn_x1=520, btn_x2=640, win_name=
                 
                 color = (0, 255, 0) if current_hand_type == "손" else (0, 0, 255)
                 cv.circle(frame, (cx, cy), 10, color, -1)
-                put_korean_text(frame, current_hand_type, (cx - 30, cy - 20), 0.6, (0, 0, 0), 7)
                 put_korean_text(frame, current_hand_type, (cx - 30, cy - 20), 0.6, color, 3)
 
                 if is_gesture_changed(prev_hand_type, current_hand_type):
@@ -140,7 +139,7 @@ def select_picture(frame, prev_hand_type=None, btn_x1=520, btn_x2=640, win_name=
     box_color = (0, 255, 0) if is_hand_in_zone else (255, 0, 0)
     box_thickness = 4 if is_hand_in_zone else 2
     cv.rectangle(frame, (btn_x1, btn_y1), (btn_x2, btn_y2), box_color, box_thickness)
-    put_korean_text(frame, "시작 지점", (btn_x1, btn_y1 - 10), 0.5, box_color, 1)
+    put_korean_text(frame, "확인 지점", (btn_x1, btn_y1 - 10), 0.5, box_color, 1)
     
     key = cv.waitKey(1) & 0xFF
     if key == ord(' ') or gesture_changed:
@@ -225,7 +224,7 @@ def find_flat(cap, ref_img, out_recorder=None, scan_board_size=SCAN_BOARD_SIZE):
                         
                         return M
             else:
-                put_korean_text(frame, "바닥 마커를 스캔 중...", (30, 80), 0.6, (0, 0, 255), 2)
+                put_korean_text(frame, "바닥 마커를 스캔 중...", (30, 80), 0.6, (0, 0, 255), 1)
         record_video(frame, out_recorder)
         cv.imshow(win_name, frame)
         if cv.waitKey(1) & 0xFF == ord('q'):
@@ -340,13 +339,13 @@ def play_game(cap, out_recorder, music_file=None, M=None, M_inv=None, M_final_ov
                 break
             
             # 중앙 정렬을 위한 타이틀 텍스트 크기 계산
-            t_size = get_korean_text_size(title_text, 1.3, 3)[0]
-            tx = (RESOLUTION[0] - t_size[0]) // 2
-            ty = (RESOLUTION[1] + t_size[1]) // 2
+            tw, th = get_korean_text_size(title_text, 1.3, 3)
+            tx = (RESOLUTION[0] - tw) // 2
+            ty = (RESOLUTION[1] + th) // 2
             
             # 뒷배경 반투명 느낌의 블랙 박스 및 테두리 연출
-            cv.rectangle(frame, (tx - 30, ty - t_size[1] - 25), (tx + t_size[0] + 30, ty + 25), (15, 15, 15), -1)
-            cv.rectangle(frame, (tx - 30, ty - t_size[1] - 25), (tx + t_size[0] + 30, ty + 25), (0, 215, 255), 3) # 황금빛 테두리
+            cv.rectangle(frame, (tx - 30, ty - th - 25), (tx + tw + 30, ty + 25), (15, 15, 15), -1)
+            cv.rectangle(frame, (tx - 30, ty - th - 25), (tx + tw + 30, ty + 25), (0, 215, 255), 3) # 황금빛 테두리
             
             # 타이틀 메인 텍스트 출력
             put_korean_text(frame, title_text, (tx, ty), 1.3, (0, 255, 255), 3) # 밝은 청록색 텍스트
@@ -374,16 +373,16 @@ def play_game(cap, out_recorder, music_file=None, M=None, M_inv=None, M_final_ov
             ret, frame = cap.read()
             if ret:
                 text = "리듬 노트 생성중..."
-                text_size = get_korean_text_size(text, 0.8, 2)[0]
-                box_x1 = (RESOLUTION[0] - text_size[0]) // 2 - 20
-                box_y1 = (RESOLUTION[1] - text_size[1]) // 2 - 20
-                box_x2 = (RESOLUTION[0] + text_size[0]) // 2 + 20
-                box_y2 = (RESOLUTION[1] + text_size[1]) // 2 + 20
+                tw, th = get_korean_text_size(text, 0.8, 2)
+                box_x1 = (RESOLUTION[0] - tw) // 2 - 20
+                box_y1 = (RESOLUTION[1] - th) // 2 - 20
+                box_x2 = (RESOLUTION[0] + tw) // 2 + 20
+                box_y2 = (RESOLUTION[1] + th) // 2 + 20
                 
                 cv.rectangle(frame, (box_x1, box_y1), (box_x2, box_y2), (0, 0, 0), -1) 
                 cv.rectangle(frame, (box_x1, box_y1), (box_x2, box_y2), (0, 255, 255), 2) 
-                put_korean_text(frame, text, ((RESOLUTION[0] - text_size[0]) // 2, (RESOLUTION[1] + text_size[1]) // 2),
-                               0.8, (0, 255, 255), 2)
+                put_korean_text(frame, text, ((RESOLUTION[0] - tw) // 2, (RESOLUTION[1] + th) // 2),
+                               0.8, (0, 255, 255), 3)
                 record_video(frame, out_recorder)
                 cv.imshow(win_name, frame)
                 cv.waitKey(10)
@@ -487,7 +486,7 @@ def play_game(cap, out_recorder, music_file=None, M=None, M_inv=None, M_final_ov
                 
                 scan_judge_y = SCAN_BOARD_SIZE[1] - 80 
                 
-                if abs(hy - scan_judge_y) <= 110:
+                if abs(hy - scan_judge_y) <= 150:
                     corrected_hand = cv.perspectiveTransform(np.array([[[hx, scan_judge_y]]], dtype=np.float32), M_inv)
                     cx_draw, cy_draw = int(corrected_hand[0][0][0]), int(corrected_hand[0][0][1])
                 else:
@@ -495,14 +494,13 @@ def play_game(cap, out_recorder, music_file=None, M=None, M_inv=None, M_final_ov
 
                 color = (0, 255, 0) if current_hand_type == "손" else (0, 0, 255)
                 cv.circle(ar_frame, (cx_draw, cy_draw), 10, color, -1)
-                put_korean_text(ar_frame, current_hand_type, (cx_draw - 30, cy_draw - 20), 0.6, (0, 0, 0), 7)
                 put_korean_text(ar_frame, current_hand_type, (cx_draw - 30, cy_draw - 20), 0.6, color, 3)
 
                 if is_gesture_changed(prev_hand_type, current_hand_type) and 0 <= hx < SCAN_BOARD_SIZE[0]:
                     for note in active_notes[:]:
                         if (abs(hx - note[0]) < 50) and (abs(elapsed_time - note[3]) < 0.15):
                             score += 100
-                            hp_bar += 0.002  # Hit 성공 시 체력 0.1 회복
+                            hp_bar += 0.01  # Hit 성공 시 체력 0.1 회복
                             if hp_bar > 1.0: hp_bar = 1.0  # 최대 체력 제한
                             
                             active_effects.append({
@@ -522,6 +520,7 @@ def play_game(cap, out_recorder, music_file=None, M=None, M_inv=None, M_final_ov
             # -------------------------------------------------------------
             # SCORE 표시 및 실시간 체력 게이지 바 그리기
             # -------------------------------------------------------------
+            cv.putText(ar_frame, f"SCORE: {score}", (20, 40), cv.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 4)  # 검은색 테두리
             cv.putText(ar_frame, f"SCORE: {score}", (20, 40), cv.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
             
             # 게이지 바 위치 세팅 (우측 상단 배치)
@@ -538,6 +537,7 @@ def play_game(cap, out_recorder, music_file=None, M=None, M_inv=None, M_final_ov
             if current_bar_w > 0:
                 cv.rectangle(ar_frame, (bar_x1, bar_y1), (bar_x1 + current_bar_w, bar_y2), hp_color, -1)
             cv.rectangle(ar_frame, (bar_x1, bar_y1), (bar_x2, bar_y2), (255, 255, 255), 1) # 테두리 흰색
+            cv.putText(ar_frame, "HP", (bar_x1 - 35, bar_y1 + 16), cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 2)  # 검은색 테두리
             cv.putText(ar_frame, "HP", (bar_x1 - 35, bar_y1 + 16), cv.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
             record_video(ar_frame, out_recorder)
             record_video(ar_frame, play_recorder)
@@ -632,18 +632,18 @@ def play_game(cap, out_recorder, music_file=None, M=None, M_inv=None, M_final_ov
                 colors[active_btn_idx - 1] = (0, 255, 0) 
 
             cv.rectangle(frame, (btn1_x1, btn_y1), (btn1_x2, btn_y2), colors[0], 2 if active_btn_idx != 1 else 4)
-            put_korean_text(frame, "메인으로 돌아가기", (btn1_x1 + 10, btn_y1 + 30), 0.5, (255, 255, 255), 1)
+            put_korean_text(frame, "메인으로 돌아가기", (btn1_x1 + 5, btn_y1 + 30), 0.5, (255, 255, 255), 2)
 
             cv.rectangle(frame, (btn2_x1, btn_y1), (btn2_x2, btn_y2), colors[1], 2 if active_btn_idx != 2 else 4)
-            put_korean_text(frame, "다시 시작", (btn2_x1 + 35, btn_y1 + 30), 0.5, (255, 255, 255), 1)
+            put_korean_text(frame, "다시 시작", (btn2_x1 + 35, btn_y1 + 30), 0.5, (255, 255, 255), 2)
 
             cv.rectangle(frame, (btn3_x1, btn_y1), (btn3_x2, btn_y2), colors[2], 2 if active_btn_idx != 3 else 4)
-            put_korean_text(frame, "게임 종료", (btn3_x1 + 25, btn_y1 + 30), 0.5, (255, 255, 255), 1)
+            put_korean_text(frame, "게임 종료", (btn3_x1 + 25, btn_y1 + 30), 0.5, (255, 255, 255), 2)
 
             if current_hand_type_found and h_cx is not None:
                 dot_color = (0, 255, 0) if current_hand_type_found == "손" else (0, 0, 255)
                 cv.circle(frame, (h_cx, h_cy), 8, dot_color, -1)
-                put_korean_text(frame, current_hand_type_found, (h_cx - 20, h_cy - 15), 0.5, dot_color, 2)
+                put_korean_text(frame, current_hand_type_found, (h_cx - 20, h_cy - 15), 0.5, dot_color, 3)
 
                 if is_gesture_changed(result_prev_hand, current_hand_type_found):
                     if active_btn_idx == 1:
@@ -677,7 +677,6 @@ def play_game(cap, out_recorder, music_file=None, M=None, M_inv=None, M_final_ov
 
 
 def select_music_file(cap, out_recorder=None, M=None, M_inv=None, M_final_overlay=None):
-    #win_name = "AR Rhythm Game Play Board (Camera View)"
     prev_hand_type = None
     selected_music = None
 
@@ -695,6 +694,28 @@ def select_music_file(cap, out_recorder=None, M=None, M_inv=None, M_final_overla
     btn_y1, btn_y2 = 260, 260 + btn_h
 
     print("\n=== [음악 선택 메뉴 진입] ===")
+    title_start_time = time.time()
+    title_text = "음악을 선택해주세요"
+    
+    while time.time() - title_start_time < 1.0:
+        ret, frame = cap.read()
+        if not ret:
+            break
+        
+        # 중앙 정렬을 위한 타이틀 텍스트 크기 계산
+        tw, th = get_korean_text_size(title_text, 1.3, 3)
+        tx = (RESOLUTION[0] - tw) // 2
+        ty = (RESOLUTION[1] + th) // 2
+        
+        # 뒷배경 반투명 느낌의 블랙 박스 및 테두리 연출
+        cv.rectangle(frame, (tx - 30, ty - th - 25), (tx + tw + 30, ty + 25), (15, 15, 15), -1)
+        cv.rectangle(frame, (tx - 30, ty - th - 25), (tx + tw + 30, ty + 25), (0, 215, 255), 3) # 황금빛 테두리
+        
+        # 타이틀 메인 텍스트 출력
+        put_korean_text(frame, title_text, (tx, ty), 1.3, (0, 255, 255), 3) # 밝은 청록색 텍스트
+        record_video(frame, out_recorder) # 타이틀 화면도 녹화
+        cv.imshow(win_name, frame)
+        cv.waitKey(1)
 
     while selected_music is None:
         ret, frame = cap.read()
@@ -708,8 +729,8 @@ def select_music_file(cap, out_recorder=None, M=None, M_inv=None, M_final_overla
         cv.rectangle(frame, (title_box_x1, title_box_y1), (title_box_x2, title_box_y2), (255, 215, 0), 3) 
         
         title_txt = "음악 선택"
-        txt_w, txt_h = get_korean_text_size(title_txt, 0.8, 2)[0]
-        put_korean_text(frame, title_txt, (title_box_x1 + (340 - txt_w)//2, title_box_y1 + (90 + txt_h)//2), 0.8, (255, 255, 255), 2)
+        txt_w, txt_h = get_korean_text_size(title_txt, 0.8, 2)
+        put_korean_text(frame, title_txt, (title_box_x1 + (340 - txt_w)//2, title_box_y1 + (90 + txt_h)//2), 0.8, (255, 255, 255), 3)
 
         detected_hands = analyze_hand_gesture_mp(frame)
         active_btn_idx = 0 
@@ -732,16 +753,19 @@ def select_music_file(cap, out_recorder=None, M=None, M_inv=None, M_final_overla
 
         cv.rectangle(frame, (btn1_x1, btn_y1), (btn1_x2, btn_y2), colors[0], 2 if active_btn_idx != 1 else 4)
         pop_w = cv.getTextSize("pop", cv.FONT_HERSHEY_SIMPLEX, 0.6, 2)[0][0]
+        
+        cv.putText(frame, "pop", (btn1_x1 + (btn_w - pop_w)//2, btn_y1 + 38), cv.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 4)  # 검은색 테두리
         cv.putText(frame, "pop", (btn1_x1 + (btn_w - pop_w)//2, btn_y1 + 38), cv.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
 
         cv.rectangle(frame, (btn2_x1, btn_y1), (btn2_x2, btn_y2), colors[1], 2 if active_btn_idx != 2 else 4)
         classic_w = cv.getTextSize("classic", cv.FONT_HERSHEY_SIMPLEX, 0.6, 2)[0][0]
+        cv.putText(frame, "classic", (btn2_x1 + (btn_w - classic_w)//2, btn_y1 + 38), cv.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 4)  # 검은색 테두리
         cv.putText(frame, "classic", (btn2_x1 + (btn_w - classic_w)//2, btn_y1 + 38), cv.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
 
         if current_hand_type_found and h_cx is not None:
             dot_color = (0, 255, 0) if current_hand_type_found == "손" else (0, 0, 255)
             cv.circle(frame, (h_cx, h_cy), 8, dot_color, -1)
-            put_korean_text(frame, current_hand_type_found, (h_cx - 20, h_cy - 15), 0.5, dot_color, 2)
+            put_korean_text(frame, current_hand_type_found, (h_cx - 20, h_cy - 15), 0.5, dot_color, 3)
 
             if is_gesture_changed(prev_hand_type, current_hand_type_found):
                 if active_btn_idx == 1:
@@ -793,9 +817,12 @@ def ask_re_scan(cap, out_recorder=None):
         cv.rectangle(frame, (title_box_x1, title_box_y1), (title_box_x2, title_box_y2), (255, 215, 0), 3) 
         
         title_txt = "이전 바닥 스캔을 사용하시겠습니까?"
-        txt_w, txt_h = get_korean_text_size(title_txt, 0.7, 2)[0]
-        put_korean_text(frame, title_txt, (title_box_x1 + ((520 - 120) - txt_w)//2, title_box_y1 + (90 + txt_h)//2), 
-                    0.7, (255, 255, 255), 2)
+        txt_w, txt_h = get_korean_text_size(title_txt, 0.7, 2)
+        put_korean_text(frame, title_txt, (title_box_x1 + ((title_box_x2 - title_box_x1) - txt_w)//2 - 10, title_box_y1 + (90 + txt_h)//2), 
+                    0.7, (255, 255, 255), 3)
+        ##-------------------------------
+        ##-------------------------------
+        ##-------------------------------
 
         detected_hands = analyze_hand_gesture_mp(frame)
         active_btn_idx = 0 
@@ -817,17 +844,17 @@ def ask_re_scan(cap, out_recorder=None):
             colors[active_btn_idx - 1] = (0, 255, 0)  
 
         cv.rectangle(frame, (btn1_x1, btn_y1), (btn1_x2, btn_y2), colors[0], 2 if active_btn_idx != 1 else 4)
-        keep_w = get_korean_text_size("유지", 0.6, 2)[0][0]
-        put_korean_text(frame, "유지", (btn1_x1 + (btn_w - keep_w)//2, btn_y1 + 38), 0.6, (255, 255, 255), 2)
+        keep_w, _ = get_korean_text_size("유지", 0.6, 2)
+        put_korean_text(frame, "유지", (btn1_x1 + (btn_w - keep_w)//2, btn_y1 + 38), 0.6, (255, 255, 255), 3)
 
         cv.rectangle(frame, (btn2_x1, btn_y1), (btn2_x2, btn_y2), colors[1], 2 if active_btn_idx != 2 else 4)
-        rescan_w = get_korean_text_size("재스캔", 0.6, 2)[0][0]
-        put_korean_text(frame, "재스캔", (btn2_x1 + (btn_w - rescan_w)//2, btn_y1 + 38), 0.6, (255, 255, 255), 2)
+        rescan_w, _ = get_korean_text_size("재스캔", 0.6, 2)
+        put_korean_text(frame, "재스캔", (btn2_x1 + (btn_w - rescan_w)//2, btn_y1 + 38), 0.6, (255, 255, 255), 3)
 
         if current_hand_type_found and h_cx is not None:
             dot_color = (0, 255, 0) if current_hand_type_found == "손" else (0, 0, 255)
             cv.circle(frame, (h_cx, h_cy), 8, dot_color, -1)
-            put_korean_text(frame, current_hand_type_found, (h_cx - 20, h_cy - 15), 0.5, dot_color, 2)
+            put_korean_text(frame, current_hand_type_found, (h_cx - 20, h_cy - 15), 0.5, dot_color, 3)
 
             if is_gesture_changed(prev_hand_type, current_hand_type_found):
                 if active_btn_idx == 1:
