@@ -66,7 +66,7 @@
 
 ### 2. 디렉토리 구조 설정 (Directory Structure)
 
-실행 전, 스크립트와 동일한 위치에 음원 파일(mp3)과 시스템 폰트가 준비되어 있어야 합니다.</br>
+실행 전, 스크립트와 동일한 위치에 음원 파일(mp3)이 준비되어 있어야 합니다.</br>
 ├── AR_rhythm_game.py</br>
 ├── classic.mp3</br>
 └── pop.mp3
