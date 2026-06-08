@@ -135,5 +135,5 @@
 * 초기 프로토타입 스킨/손 윤곽선 인식 아이디어 레퍼런스: [mahaveerverma/hand-gesture-recognition-opencv] "https://github.com/mahaveerverma/hand-gesture-recognition-opencv"
 * 음악
   - classic.mp3: [클래식 피아노_Piano Amor](https://lesfm.net/ko/track/classical-piano)
-  - pop.mp3: [Escape Your Love (Upbeat Fashion Pop Dance)_FASSounds](Music by <a href="https://pixabay.com/ko/users/fassounds-3433550/?utm_source=link-attribution&utm_medium=referral&utm_campaign=music&utm_content=412230">FASSounds</a> from <a href="https://pixabay.com/music//?utm_source=link-attribution&utm_medium=referral&utm_campaign=music&utm_content=412230">Pixabay</a>)
+  - pop.mp3: Escape Your Love (Upbeat Fashion Pop Dance)_FASSounds(Music by <a href="https://pixabay.com/ko/users/fassounds-3433550/?utm_source=link-attribution&utm_medium=referral&utm_campaign=music&utm_content=412230">FASSounds</a> from <a href="https://pixabay.com/music//?utm_source=link-attribution&utm_medium=referral&utm_campaign=music&utm_content=412230">Pixabay</a>)
 
